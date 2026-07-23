@@ -54,7 +54,8 @@
     "manifesto": "node manifesto.mjs",
     "test:path-safety": "node --test tests/path-safety/*.test.mjs",
     "path:queue": "node scripts/path-queue.mjs",
-    "path:approve": "node scripts/path-approve.mjs"
+    "path:approve": "node scripts/path-approve.mjs",
+    "path:dispatch": "node scripts/path-dispatch.mjs"
   },
   "keywords": [
     "ai",
