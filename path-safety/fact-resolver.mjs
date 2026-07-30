@@ -58,7 +58,7 @@ export function resolveClaims(text, facts) {
   return { supported, unsupported };
 }
 
-function splitClaims(text) {
+export function splitClaims(text) {
   return String(text)
     .split(/(?<=[.!?])\s+/)
     .map((claim) => claim.trim())

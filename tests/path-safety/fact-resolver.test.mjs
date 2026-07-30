@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadFacts, resolveClaims } from '../../path-safety/fact-resolver.mjs';
+import { loadFacts, resolveClaims, splitClaims } from '../../path-safety/fact-resolver.mjs';
+
+test('one sentence is one atomic claim unit', () => {
+  assert.deepEqual(splitClaims('One complete sentence.'), ['One complete sentence.']);
+});
+
+test('two-sentence quote is two atomic claim units', () => {
+  assert.deepEqual(splitClaims('First sentence. Second sentence!'), [
+    'First sentence.',
+    'Second sentence!'
+  ]);
+});
 
 test('known facts are supported', () => {
   const facts = loadFacts('config/path.facts.yml');

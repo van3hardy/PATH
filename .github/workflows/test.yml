@@ -19,6 +19,12 @@ jobs:
       # never launch a browser, so the ~170 MB download is pure CI overhead.
       - run: npm install --ignore-scripts
       - run: node test-all.mjs --quick
+      # Linux runners can create symlinks, so the symlink-rejection tests that
+      # skip on Windows (EPERM) actually execute here.
+      - name: Path safety tests
+        run: npm run test:path-safety
+      - name: Path agent tests
+        run: npm run test:path-agent
       - name: Go dashboard tests
         run: go test ./...
         working-directory: dashboard

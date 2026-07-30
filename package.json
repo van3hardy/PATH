@@ -53,6 +53,8 @@
     "postinstall": "npx playwright install chromium --with-deps || npx playwright install chromium --with-deps",
     "manifesto": "node manifesto.mjs",
     "test:path-safety": "node --test tests/path-safety/*.test.mjs",
+    "test:path-agent": "node --test tests/path-brain/*.test.mjs tests/path-runner/*.test.mjs tests/path-memory/*.test.mjs tests/path-workflows/recruiter/*.test.mjs tests/path-cli/*.test.mjs",
+    "path:run": "node scripts/path-run.mjs",
     "path:queue": "node scripts/path-queue.mjs",
     "path:approve": "node scripts/path-approve.mjs",
     "path:dispatch": "node scripts/path-dispatch.mjs"
