@@ -293,6 +293,17 @@ const SYSTEM_PATHS = [
   'plugin-audit.mjs',
   'validate-plugin-registry.mjs',
   'config/plugins.example.yml',
+  '.gitattributes',
+  'path-brain/',
+  'path-memory/',
+  'path-runner/',
+  'path-safety/',
+  'path-workflows/',
+  'scripts/path-run.mjs',
+  'scripts/path-queue.mjs',
+  'scripts/path-approve.mjs',
+  'scripts/path-dispatch.mjs',
+  'config/path.autonomy.yml',
 ];
 
 const BOOTSTRAP_PATHS = [
@@ -340,6 +351,7 @@ const USER_PATHS = [
   'jds/',
   'writing-samples/',
   'config/plugins.yml',
+  'config/path.facts.yml',
   'plugins.local/',
   'plugins.lock',
   '.claude/settings.json',
