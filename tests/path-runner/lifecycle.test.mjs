@@ -54,6 +54,25 @@ function assertCode(fn, code) {
   });
 }
 
+// A symlinked artifact is refused by whichever guard sees it first: the run-path
+// safety check, or the untracked/tampered artifact checks. Assert the security
+// property (refused, target untouched) rather than which guard won the race.
+const ARTIFACT_ESCAPE_CODES = [
+  'BLOCKED_UNSAFE_RUN_PATH',
+  'UNRESOLVED_UNTRACKED_ARTIFACT',
+  'UNRESOLVED_TAMPERED_ARTIFACT'
+];
+
+function assertBlockedBy(fn, codes) {
+  assert.throws(fn, (error) => {
+    assert.ok(
+      codes.includes(error.code),
+      `expected one of ${codes.join(', ')}, got ${error.code}`
+    );
+    return true;
+  });
+}
+
 function fsWith(overrides = {}) {
   return { ...fs, ...overrides };
 }
@@ -487,13 +506,60 @@ test('an artifact symlink is rejected without overwriting its target', (t) => {
   fs.writeFileSync(outsideArtifact, 'outside', 'utf8');
   const artifactLink = path.join(runPath(rootDir), 'draft.md');
   if (createSymlinkOrSkip(t, outsideArtifact, artifactLink)) {
-    assertCode(() => writeRunArtifact({
+    assertBlockedBy(() => writeRunArtifact({
       rootDir,
       runId: 'run-test-001',
       name: 'draft.md',
       content: 'replacement'
-    }, options()), 'BLOCKED_UNSAFE_RUN_PATH');
+    }, options()), ARTIFACT_ESCAPE_CODES);
     assert.equal(fs.readFileSync(outsideArtifact, 'utf8'), 'outside');
+    assert.ok(fs.lstatSync(artifactLink).isSymbolicLink(),
+      'the symlink must not be replaced by a regular file');
+  }
+});
+
+test('a tracked artifact swapped for a symlink is rejected without overwriting its target', (t) => {
+  const { base, rootDir } = makeSandbox(t);
+  create(rootDir);
+  const artifact = path.join(runPath(rootDir), 'draft.md');
+  writeRunArtifact({
+    rootDir, runId: 'run-test-001', name: 'draft.md', content: 'legit'
+  }, options());
+
+  const outsideArtifact = path.join(base, 'outside.md');
+  fs.writeFileSync(outsideArtifact, 'outside', 'utf8');
+  fs.unlinkSync(artifact);
+  if (createSymlinkOrSkip(t, outsideArtifact, artifact)) {
+    assertBlockedBy(() => writeRunArtifact({
+      rootDir,
+      runId: 'run-test-001',
+      name: 'draft.md',
+      content: 'replacement'
+    }, options()), ARTIFACT_ESCAPE_CODES);
+    assert.equal(fs.readFileSync(outsideArtifact, 'utf8'), 'outside');
+  }
+});
+
+test('a symlink whose target matches the recorded hash is still rejected', (t) => {
+  const { base, rootDir } = makeSandbox(t);
+  create(rootDir);
+  const artifact = path.join(runPath(rootDir), 'draft.md');
+  writeRunArtifact({
+    rootDir, runId: 'run-test-001', name: 'draft.md', content: 'legit'
+  }, options());
+
+  // Byte-identical to the recorded content, so a content-hash check alone passes.
+  const victim = path.join(base, 'victim.md');
+  fs.writeFileSync(victim, 'legit', 'utf8');
+  fs.unlinkSync(artifact);
+  if (createSymlinkOrSkip(t, victim, artifact)) {
+    assertBlockedBy(() => writeRunArtifact({
+      rootDir,
+      runId: 'run-test-001',
+      name: 'draft.md',
+      content: 'ATTACKER-CONTROLLED'
+    }, options()), ARTIFACT_ESCAPE_CODES);
+    assert.equal(fs.readFileSync(victim, 'utf8'), 'legit');
   }
 });
 
