@@ -1,0 +1,4 @@
+# The recruiter CLI fixtures are content-addressed: request.json pins
+# expectedSourceSha256 over approved-profile.md. CRLF conversion on checkout
+# changes those bytes and the hash no longer matches, so pin them to LF.
+tests/fixtures/path-recruiter/** text eol=lf
