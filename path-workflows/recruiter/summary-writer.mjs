@@ -1,10 +1,14 @@
 const RUN_ID = /^run-[a-z0-9-]+$/;
 const PACKET_ID = /^[a-f0-9]{16}$/;
 
+const COUNT_KEYS = ['EVIDENCE', 'REQUEST', 'TEMPLATE', 'UNVERIFIED'];
+
 export function renderRunSummary({ runId, packetId, classification } = {}) {
   if (typeof runId !== 'string' || !RUN_ID.test(runId) ||
       typeof packetId !== 'string' || !PACKET_ID.test(packetId) ||
       !isRecord(classification) || !isRecord(classification.counts) ||
+      !COUNT_KEYS.every((key) => Number.isInteger(classification.counts[key]) &&
+        classification.counts[key] >= 0) ||
       !Array.isArray(classification.unverified)) {
     throw codedError('BLOCKED_INVALID_SUMMARY');
   }
