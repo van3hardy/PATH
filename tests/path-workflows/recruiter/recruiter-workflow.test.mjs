@@ -167,9 +167,22 @@ test('successful workflow writes exact local artifacts and returns only the revi
 - Claim report: claim-report.json
 - Approval packet: ${result.packetId}
 - Safety tier: YELLOW
+- Draft segments: 4 - all accounted for
+  (1 evidence, 1 from request, 2 template wording)
 - External action: NONE — HUMAN REVIEW REQUIRED
 `);
   assert.doesNotMatch(summary.toLowerCase(), /\b(success|sent|dispatched|approved)\b/);
+});
+
+test('run summary accounts for every draft segment on a clean run', async (t) => {
+  const rootDir = makeSandbox(t);
+  await runRecruiterWorkflow(workflowOptions(rootDir));
+  const summary = fs.readFileSync(runPath(rootDir, 'run-summary.md'), 'utf8');
+
+  assert.match(summary, /- Draft segments: 4 - all accounted for/);
+  assert.match(summary, /\(1 evidence, 1 from request, 2 template wording\)/);
+  assert.doesNotMatch(summary, /UNVERIFIED/);
+  assert.doesNotMatch(summary.toLowerCase(), /\bverified\b(?! segments)/);
 });
 
 test('packet from a run that fails after queueing is not approvable', async (t) => {

@@ -158,7 +158,11 @@ export async function runRecruiterWorkflow(options = {}) {
       rootDir,
       runId,
       name: 'run-summary.md',
-      content: renderRunSummary({ runId, packetId })
+      content: renderRunSummary({
+        runId,
+        packetId,
+        classification: claimReport.draftClassification
+      })
     }, lifecycleOptions);
     transitionRun({ rootDir, runId, to: 'PACKET_QUEUED' }, lifecycleOptions);
     finishRun({ rootDir, runId, status: 'HUMAN_REVIEW' }, lifecycleOptions);
