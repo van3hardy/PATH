@@ -182,7 +182,7 @@ test('run summary accounts for every draft segment on a clean run', async (t) =>
   assert.match(summary, /- Draft segments: 4 - all accounted for/);
   assert.match(summary, /\(1 evidence, 1 from request, 2 template wording\)/);
   assert.doesNotMatch(summary, /UNVERIFIED/);
-  assert.doesNotMatch(summary.toLowerCase(), /\bverified\b(?! segments)/);
+  assert.doesNotMatch(summary, /\bverified\b/i);
 });
 
 test('a draft with unverified segments still reaches HUMAN_REVIEW', async (t) => {

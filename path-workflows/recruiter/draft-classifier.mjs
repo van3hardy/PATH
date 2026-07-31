@@ -1,5 +1,5 @@
 import { renderRequestFrame, TEMPLATE_SEGMENTS } from '../../path-brain/recruiter-template.mjs';
-import { splitClaims } from '../../path-safety/fact-resolver.mjs';
+import { normalizeText, splitClaims } from '../../path-safety/fact-resolver.mjs';
 
 export function classifyDraft({ text, evidenceItems, request } = {}) {
   if (typeof text !== 'string' || text.trim().length === 0 ||
@@ -13,17 +13,17 @@ export function classifyDraft({ text, evidenceItems, request } = {}) {
   }
 
   const evidenceById = new Map(
-    evidenceItems.map((item) => [normalize(item.quote), item.id])
+    evidenceItems.map((item) => [normalizeText(item.quote), item.id])
   );
   const requestSegments = new Set(
-    splitClaims(renderRequestFrame(request)).map(normalize)
+    splitClaims(renderRequestFrame(request)).map(normalizeText)
   );
   const templateSegments = new Set(
-    TEMPLATE_SEGMENTS.flatMap((segment) => splitClaims(segment)).map(normalize)
+    TEMPLATE_SEGMENTS.flatMap((segment) => splitClaims(segment)).map(normalizeText)
   );
 
   const segments = splitClaims(text).map((segment) => {
-    const key = normalize(segment);
+    const key = normalizeText(segment);
     if (evidenceById.has(key)) {
       return { text: segment, label: 'EVIDENCE', evidenceId: evidenceById.get(key) };
     }
@@ -40,10 +40,6 @@ export function classifyDraft({ text, evidenceItems, request } = {}) {
     counts,
     unverified: segments.filter((s) => s.label === 'UNVERIFIED').map((s) => s.text)
   };
-}
-
-function normalize(value) {
-  return String(value).trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function nonempty(value) {

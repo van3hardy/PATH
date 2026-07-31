@@ -15,6 +15,9 @@ export function renderRunSummary({ runId, packetId, classification } = {}) {
 
   const { EVIDENCE, REQUEST, TEMPLATE, UNVERIFIED } = classification.counts;
   const total = EVIDENCE + REQUEST + TEMPLATE + UNVERIFIED;
+  if (total === 0) {
+    throw codedError('BLOCKED_INVALID_SUMMARY');
+  }
   const accounting = UNVERIFIED === 0
     ? `- Draft segments: ${total} - all accounted for
   (${EVIDENCE} evidence, ${REQUEST} from request, ${TEMPLATE} template wording)`

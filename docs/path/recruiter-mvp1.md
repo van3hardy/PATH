@@ -110,12 +110,12 @@ Any Ollama or OpenAI activation is a later, separately approved action.
 
 The resolver evaluates the Brain's declared claims, not an inferred subset. It
 produces `claim-report.json` with draft SHA-256, every atomic declared claim,
-supported claims, unsupported claims, evidence IDs, and a deterministic status.
-Every declared claim must be one atomic sentence with exact selected evidence.
-The complete deterministic template and declarations are checked before packet
-construction. Any unsupported claim returns
-`BLOCKED_UNSUPPORTED_CLAIMS` before the outbound gate, packet, outbox, or
-dispatch path.
+supported claims, unsupported claims, evidence IDs, a draft classification,
+and a deterministic status. Every declared claim must be one atomic sentence
+with exact selected evidence. The complete deterministic template and
+declarations are checked before packet construction. Any unsupported claim
+returns `BLOCKED_UNSUPPORTED_CLAIMS` before the outbound gate, packet, outbox,
+or dispatch path.
 
 Every declared claim must also appear verbatim in the draft text, compared after
 trimming, collapsing whitespace runs, and lowercasing. A declaration absent from
@@ -129,6 +129,15 @@ unchecked template text.
 
 Unsupported claims are distinct from RED. They are never packetized, manual,
 promotable, approved, or dispatched.
+
+Every draft segment, including the sentences above that are not claim-checked,
+is now labelled EVIDENCE, REQUEST, TEMPLATE, or UNVERIFIED in
+`draftClassification` inside `claim-report.json`, and the counts are
+summarised in `run-summary.md`. Only EVIDENCE means an approved fact backs the
+segment; REQUEST means the operator supplied the value as part of the request;
+TEMPLATE means fixed wording from the deterministic template. The
+classification is report-only: it informs the human reviewer and never blocks
+a run.
 
 ### Policy and approval packet
 

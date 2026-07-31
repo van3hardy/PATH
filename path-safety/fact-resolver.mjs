@@ -41,14 +41,14 @@ export function resolveClaims(text, facts) {
   const approvedFacts = new Set(
     (facts.facts || [])
       .filter((fact) => fact.approved === true)
-      .map((fact) => normalize(fact.text))
+      .map((fact) => normalizeText(fact.text))
   );
 
   const supported = [];
   const unsupported = [];
 
   for (const claim of claims) {
-    if (approvedFacts.has(normalize(claim))) {
+    if (approvedFacts.has(normalizeText(claim))) {
       supported.push(claim);
     } else {
       unsupported.push(claim);
@@ -65,7 +65,7 @@ export function splitClaims(text) {
     .filter(Boolean);
 }
 
-function normalize(value) {
+export function normalizeText(value) {
   return String(value).trim().replace(/\s+/g, ' ').toLowerCase();
 }
 

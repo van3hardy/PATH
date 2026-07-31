@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { resolveClaims, splitClaims } from '../../path-safety/fact-resolver.mjs';
+import { normalizeText, resolveClaims, splitClaims } from '../../path-safety/fact-resolver.mjs';
 import { classifyDraft } from './draft-classifier.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -55,8 +55,8 @@ function validateBrainOutput(output) {
       typeof output.text !== 'string' || output.text.trim().length === 0) {
     throw codedError('FAILED_BRAIN_OUTPUT_INVALID');
   }
-  const draft = normalizeClaimText(output.text);
-  if (!output.claims.every((claim) => draft.includes(normalizeClaimText(claim)))) {
+  const draft = normalizeText(output.text);
+  if (!output.claims.every((claim) => draft.includes(normalizeText(claim)))) {
     throw codedError('FAILED_BRAIN_OUTPUT_INVALID');
   }
 }
@@ -82,7 +82,7 @@ function validateSelection(selection) {
         !validFreshness(item.freshness, inspectedAt)) {
       throw codedError('BLOCKED_INVALID_EVIDENCE');
     }
-    const normalizedQuote = item.quote.trim().replace(/\s+/g, ' ').toLowerCase();
+    const normalizedQuote = normalizeText(item.quote);
     if (quotesByFactKey.has(item.factKey) &&
         quotesByFactKey.get(item.factKey) !== normalizedQuote) {
       throw codedError('UNRESOLVED_CONFLICTING_EVIDENCE');
@@ -108,10 +108,6 @@ function validTimestamp(value) {
 
 function nonempty(value) {
   return typeof value === 'string' && value.trim().length > 0;
-}
-
-function normalizeClaimText(value) {
-  return String(value).trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function isRecord(value) {

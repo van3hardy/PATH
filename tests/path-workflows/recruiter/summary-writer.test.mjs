@@ -105,3 +105,15 @@ test('renderRunSummary throws BLOCKED_INVALID_SUMMARY for a bad packetId', () =>
     { code: 'BLOCKED_INVALID_SUMMARY' }
   );
 });
+
+test('renderRunSummary throws BLOCKED_INVALID_SUMMARY when all counts are zero', () => {
+  assert.throws(
+    () => renderRunSummary(baseArgs({
+      classification: {
+        counts: { EVIDENCE: 0, REQUEST: 0, TEMPLATE: 0, UNVERIFIED: 0 },
+        unverified: []
+      }
+    })),
+    { code: 'BLOCKED_INVALID_SUMMARY' }
+  );
+});
