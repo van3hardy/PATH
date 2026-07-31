@@ -185,6 +185,83 @@ test('run summary accounts for every draft segment on a clean run', async (t) =>
   assert.doesNotMatch(summary.toLowerCase(), /\bverified\b(?! segments)/);
 });
 
+test('a draft with unverified segments still reaches HUMAN_REVIEW', async (t) => {
+  const rootDir = makeSandbox(t);
+  const chattyProvider = {
+    async generate(input) {
+      const base = await fakeProvider.generate(input);
+      return {
+        ...base,
+        text: `${base.text}\n\nVan led a 12-person ML platform team at Google.`
+      };
+    }
+  };
+
+  const result = await runRecruiterWorkflow(
+    workflowOptions(rootDir, { provider: chattyProvider })
+  );
+
+  assert.equal(result.status, 'HUMAN_REVIEW');
+  assert.equal(result.resultCode, 'LOCAL_REVIEW_READY');
+
+  const report = readJson(runPath(rootDir, 'claim-report.json'));
+  assert.deepEqual(report.draftClassification.unverified, [
+    'Van led a 12-person ML platform team at Google.'
+  ]);
+
+  const summary = fs.readFileSync(runPath(rootDir, 'run-summary.md'), 'utf8');
+  assert.match(summary, /1 UNVERIFIED/);
+  assert.match(summary, /## Unverified segments/);
+  assert.match(summary, /12-person ML platform team/);
+});
+
+test('a declared claim absent from evidence still blocks', async (t) => {
+  const rootDir = makeSandbox(t);
+  const lyingProvider = {
+    async generate(input) {
+      const base = await fakeProvider.generate(input);
+      const invented = 'Van invented an unsupported claim.';
+      return {
+        ...base,
+        text: `${base.text}\n\n${invented}`,
+        claims: [invented]
+      };
+    }
+  };
+
+  const result = await runRecruiterWorkflow(
+    workflowOptions(rootDir, { provider: lyingProvider })
+  );
+
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.resultCode, 'BLOCKED_UNSUPPORTED_CLAIMS');
+  assert.equal(fs.existsSync(dataPath(rootDir, 'path-outbox.jsonl')), false);
+});
+
+// Invalid brain output (blank text) is rejected by validateBrainOutput before
+// classifyDraft ever runs. This test does not exercise the classifier's own
+// throw path — that is covered by a unit test in
+// tests/path-workflows/recruiter/draft-classifier.test.mjs. What this test
+// pins is the workflow-level property: a FAILED run must never queue a
+// packet or write an outbox entry.
+test('invalid brain output ends the run FAILED and queues no packet', async (t) => {
+  const rootDir = makeSandbox(t);
+  const emptyEvidenceProvider = {
+    async generate(input) {
+      const base = await fakeProvider.generate(input);
+      return { ...base, text: '   ' };
+    }
+  };
+
+  const result = await runRecruiterWorkflow(
+    workflowOptions(rootDir, { provider: emptyEvidenceProvider })
+  );
+
+  assert.equal(result.status, 'FAILED');
+  assert.equal(result.packetId, null);
+  assert.equal(fs.existsSync(dataPath(rootDir, 'path-outbox.jsonl')), false);
+});
+
 test('packet from a run that fails after queueing is not approvable', async (t) => {
   const rootDir = makeSandbox(t);
   const fsImpl = {
