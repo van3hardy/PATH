@@ -73,6 +73,12 @@ test('buildClaimReport derives an exact supported report from validated selected
   assert.equal(report.status, 'SUPPORTED');
   assert.deepEqual(report.draftClassification.unverified, []);
   assert.equal(report.draftClassification.counts.UNVERIFIED, 0);
+  assert.equal(report.voiceProfile, 'path-recruiter-persistent-respectful-v1');
+  assert.equal(report.disclosurePolicy, 'always-disclose-ai-assistance-v1');
+  assert.deepEqual(Object.keys(report).sort(), [
+    'declaredClaims', 'disclosurePolicy', 'draftClassification', 'draftSha256',
+    'evidenceIds', 'schemaVersion', 'status', 'supported', 'unsupported', 'voiceProfile'
+  ]);
 });
 
 test('buildClaimReport reports a declared claim absent from selection as unsupported', () => {
