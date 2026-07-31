@@ -1,12 +1,13 @@
 import crypto from 'node:crypto';
 
 import { resolveClaims, splitClaims } from '../../path-safety/fact-resolver.mjs';
+import { classifyDraft } from './draft-classifier.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
 
-export function buildClaimReport({ brainOutput, selection } = {}) {
+export function buildClaimReport({ brainOutput, selection, request } = {}) {
   validateBrainOutput(brainOutput);
   validateSelection(selection);
 
@@ -21,13 +22,20 @@ export function buildClaimReport({ brainOutput, selection } = {}) {
   };
   const result = resolveClaims(brainOutput.claims.join(' '), facts);
 
+  const draftClassification = classifyDraft({
+    text: brainOutput.text,
+    evidenceItems: selection.items,
+    request
+  });
+
   return {
-    schemaVersion: 'path.claim-report.v1',
+    schemaVersion: 'path.claim-report.v2',
     draftSha256: sha256(brainOutput.text),
     declaredClaims: [...brainOutput.claims],
     supported: result.supported,
     unsupported: result.unsupported,
     evidenceIds: selection.items.map((item) => item.id),
+    draftClassification,
     voiceProfile: brainOutput.voiceProfile,
     disclosurePolicy: brainOutput.disclosurePolicy,
     status: result.unsupported.length === 0

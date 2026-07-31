@@ -54,20 +54,25 @@ function selection(overrides = {}) {
 }
 
 test('buildClaimReport derives an exact supported report from validated selected evidence', () => {
-  assert.deepEqual(buildClaimReport({
+  const report = buildClaimReport({
     brainOutput: brainOutput(),
-    selection: selection()
-  }), {
-    schemaVersion: 'path.claim-report.v1',
-    draftSha256: '6168c4e05682895f2684faee883d29a95aaed784ec827bbb366fc4dffd7354a4',
-    declaredClaims: [CLAIM],
-    supported: [CLAIM],
-    unsupported: [],
-    evidenceIds: ['fact-agent-workflows'],
-    voiceProfile: 'path-recruiter-persistent-respectful-v1',
-    disclosurePolicy: 'always-disclose-ai-assistance-v1',
-    status: 'SUPPORTED'
+    selection: selection(),
+    request: {
+      recipient: { name: 'Hiring Manager' },
+      opportunity: { company: 'Example Company', role: 'AI Engineer' }
+    }
   });
+
+  assert.equal(report.schemaVersion, 'path.claim-report.v2');
+  assert.equal(report.draftSha256,
+    '6168c4e05682895f2684faee883d29a95aaed784ec827bbb366fc4dffd7354a4');
+  assert.deepEqual(report.declaredClaims, [CLAIM]);
+  assert.deepEqual(report.supported, [CLAIM]);
+  assert.deepEqual(report.unsupported, []);
+  assert.deepEqual(report.evidenceIds, ['fact-agent-workflows']);
+  assert.equal(report.status, 'SUPPORTED');
+  assert.deepEqual(report.draftClassification.unverified, []);
+  assert.equal(report.draftClassification.counts.UNVERIFIED, 0);
 });
 
 test('buildClaimReport reports a declared claim absent from selection as unsupported', () => {
@@ -77,7 +82,11 @@ test('buildClaimReport reports a declared claim absent from selection as unsuppo
       claims: [unsupported],
       text: DRAFT.replace(CLAIM, unsupported)
     }),
-    selection: selection()
+    selection: selection(),
+    request: {
+      recipient: { name: 'Hiring Manager' },
+      opportunity: { company: 'Example Company', role: 'AI Engineer' }
+    }
   });
 
   assert.deepEqual(report.declaredClaims, [unsupported]);
@@ -96,7 +105,11 @@ test('buildClaimReport never derives approval from file location alone', () => {
 
   assert.throws(() => buildClaimReport({
     brainOutput: brainOutput(),
-    selection: invalid
+    selection: invalid,
+    request: {
+      recipient: { name: 'Hiring Manager' },
+      opportunity: { company: 'Example Company', role: 'AI Engineer' }
+    }
   }), { code: 'BLOCKED_INVALID_EVIDENCE' });
 });
 
@@ -110,6 +123,10 @@ test('buildClaimReport rejects unresolved conflicting values for one fact key', 
 
   assert.throws(() => buildClaimReport({
     brainOutput: brainOutput(),
-    selection: conflicting
+    selection: conflicting,
+    request: {
+      recipient: { name: 'Hiring Manager' },
+      opportunity: { company: 'Example Company', role: 'AI Engineer' }
+    }
   }), { code: 'UNRESOLVED_CONFLICTING_EVIDENCE' });
 });

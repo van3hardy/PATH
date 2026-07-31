@@ -84,7 +84,7 @@ export async function runRecruiterWorkflow(options = {}) {
     }, lifecycleOptions);
     transitionRun({ rootDir, runId, to: 'DRAFTED' }, lifecycleOptions);
 
-    const claimReport = buildClaimReport({ brainOutput, selection });
+    const claimReport = buildClaimReport({ brainOutput, selection, request });
     const claimArtifact = writeJsonArtifact(
       rootDir,
       runId,
