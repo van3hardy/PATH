@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { fakeProvider } from '../../path-brain/fake-provider.mjs';
-import { renderRecruiterTemplate } from '../../path-brain/recruiter-template.mjs';
+import {
+  renderRecruiterTemplate,
+  renderRequestFrame,
+  TEMPLATE_SEGMENTS
+} from '../../path-brain/recruiter-template.mjs';
 
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
@@ -152,4 +156,20 @@ test('fixed template rejects arbitrary style prompts and extra evidence metadata
     () => renderRecruiterTemplate(withMetadata),
     (error) => error.code === 'BLOCKED_INVALID_BRAIN_INPUT'
   );
+});
+
+test('template exports the request frame and fixed segments it renders with', () => {
+  const frame = renderRequestFrame({
+    recipient: { name: 'Hiring Manager' },
+    opportunity: { company: 'Example Company', role: 'AI Engineer' }
+  });
+  assert.equal(
+    frame,
+    "Hello Hiring Manager,\n\nI'm reaching out on Van's behalf about the AI Engineer opportunity at Example Company."
+  );
+  assert.deepEqual(TEMPLATE_SEGMENTS, [
+    'If this background may be relevant, would you be open to a conversation?',
+    "Best,\nVan\nPrepared with Path, Van's AI recruiting assistant."
+  ]);
+  assert.ok(Object.isFrozen(TEMPLATE_SEGMENTS));
 });

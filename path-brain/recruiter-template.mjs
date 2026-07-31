@@ -15,6 +15,17 @@ const INPUT_KEYS = [
 ];
 const EVIDENCE_KEYS = ['id', 'factKey', 'source', 'quote'];
 
+export const TEMPLATE_SEGMENTS = Object.freeze([
+  'If this background may be relevant, would you be open to a conversation?',
+  "Best,\nVan\nPrepared with Path, Van's AI recruiting assistant."
+]);
+
+export function renderRequestFrame({ recipient, opportunity }) {
+  return `Hello ${recipient.name},
+
+I'm reaching out on Van's behalf about the ${opportunity.role} opportunity at ${opportunity.company}.`;
+}
+
 export function renderRecruiterTemplate(input) {
   if (!hasExactKeys(input, INPUT_KEYS) ||
       input.schemaVersion !== REQUEST_SCHEMA ||
@@ -44,17 +55,11 @@ export function renderRecruiterTemplate(input) {
     return item.quote;
   });
 
-  const text = `Hello ${input.recipient.name},
-
-I'm reaching out on Van's behalf about the ${input.opportunity.role} opportunity at ${input.opportunity.company}.
-
-${claims.join('\n\n')}
-
-If this background may be relevant, would you be open to a conversation?
-
-Best,
-Van
-Prepared with Path, Van's AI recruiting assistant.`;
+  const text = [
+    renderRequestFrame(input),
+    claims.join('\n\n'),
+    ...TEMPLATE_SEGMENTS
+  ].join('\n\n');
 
   return {
     text,
