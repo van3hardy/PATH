@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Spec: `docs/superpowers/specs/2026-07-30-draft-body-verification-design.md`.
-- Repo root: `C:/Users/van1h/Documents/GitHub/Path`. Branch: `path/bootstrap`.
+- Branch: `path/bootstrap`. All paths below are relative to the repo root.
 - No new npm dependencies. Node built-ins only.
 - "Segment" means a chunk returned by `splitClaims` (`path-safety/fact-resolver.mjs:61`), not a linguistic sentence.
 - Normalisation is trim, collapse whitespace runs, lowercase — matching `fact-resolver.mjs:68`.
@@ -677,14 +677,17 @@ Expected: both exit 0. On Windows, six symlink tests skip with `EPERM`.
 
 - [ ] **Step 4: Verify on Linux**
 
+Export the committed tree to a scratch directory outside the repo, then run
+the suite against it in a Linux container. Substitute your own scratch path
+for `$REPRO`, and its host-native form for `<REPRO-HOST-PATH>`.
+
 ```bash
-REPRO=/c/Users/van1h/AppData/Local/Temp/claude/path-repro
 rm -rf "$REPRO" && mkdir -p "$REPRO"
 git archive HEAD | tar -x -C "$REPRO"
 ```
 
 ```bash
-docker run --rm -v "C:\Users\van1h\AppData\Local\Temp\claude\path-repro:/app" -w /app node:24 sh -c "npm install --ignore-scripts >/dev/null 2>&1; npm run test:path-agent"
+docker run --rm -v "<REPRO-HOST-PATH>:/app" -w /app node:24 sh -c "npm install --ignore-scripts >/dev/null 2>&1; npm run test:path-agent"
 ```
 
 Expected: 0 failures, 0 skipped. All six symlink tests execute.
