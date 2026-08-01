@@ -117,5 +117,17 @@ package-lock.json
 # Planning (local scratchpad)
 plan/
 
+# Path — runtime state, audit ledger, and run artifacts (personal, never commit)
+data/path-audit.jsonl
+data/path-outbox.jsonl
+data/path-approvals.jsonl
+data/path-runs/
+
+# Disciplined Work — generated per-machine state
+.disciplined-work/
+
+# Codex CLI hooks — machine-specific configuration
+.codex/
+
 # Web
 .career-ops-web/logo-cache/
