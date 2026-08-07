@@ -122,23 +122,69 @@ function isPlaywrightServer(server) {
   return blob.includes('@playwright/mcp');
 }
 
+function isPlaywrightInClaudeLocalConfig(root) {
+  const home = process.env.USERPROFILE || process.env.HOME;
+  if (!home) return false;
+
+  const file = join(home, '.claude.json');
+  if (!existsSync(file)) return false;
+
+  try {
+    const cfg = JSON.parse(readFileSync(file, 'utf8')) ?? {};
+
+    const normalizeProjectPath = (value) => {
+      const normalized = String(value).replace(/\\/g, '/');
+      return process.platform === 'win32'
+        ? normalized.toLowerCase()
+        : normalized;
+    };
+
+    const targetProject = normalizeProjectPath(root);
+    const project = Object.entries(cfg.projects ?? {})
+      .find(([projectPath]) =>
+        normalizeProjectPath(projectPath) === targetProject)?.[1];
+
+    if (!project || typeof project !== 'object') return false;
+
+    const buckets = [project.mcpServers, project.mcp]
+      .filter((b) => b && typeof b === 'object');
+
+    return buckets.some((servers) =>
+      Object.values(servers).some(isPlaywrightServer));
+  } catch {
+    // Malformed Claude config: treat as unconfigured and keep silent.
+  }
+
+  return false;
+}
+
 function isPlaywrightMcpConfigured(root, activeCli) {
   const entry = MCP_CONFIGS.find((c) => c.cli === activeCli);
   if (!entry) return false; // known CLI but no MCP file mapping; caller warns
-  return entry.files.some((rel) => {
+
+  const projectConfigured = entry.files.some((rel) => {
     const file = join(root, ...rel.split('/'));
     if (!existsSync(file)) return false;
+
     try {
       const cfg = parseConfigByExtension(file, readFileSync(file, 'utf8')) ?? {};
-      const buckets = [cfg.mcpServers, cfg.mcp].filter((b) => b && typeof b === 'object');
-      return buckets.some((servers) => Object.values(servers).some(isPlaywrightServer));
+      const buckets = [cfg.mcpServers, cfg.mcp]
+        .filter((b) => b && typeof b === 'object');
+
+      return buckets.some((servers) =>
+        Object.values(servers).some(isPlaywrightServer));
     } catch {
-      // Malformed config — treat as unconfigured, keep silent (matches prior behavior).
+      // Malformed config: treat as unconfigured and keep silent.
     }
+
     return false;
   });
-}
 
+  if (projectConfigured) return true;
+
+  return activeCli === 'claude'
+    && isPlaywrightInClaudeLocalConfig(root);
+}
 // CLI resolution: --cli flag > $CAREER_OPS_CLI > .env (CAREER_OPS_CLI=...) >
 // default ('claude'). An unknown value at ANY level returns the sentinel
 // 'unknown' and produces no output — CLI-dependent checks are silently

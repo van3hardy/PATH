@@ -426,6 +426,87 @@ try {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
 
+
+  // 19. Claude local-scope MCP servers live in ~/.claude.json under the
+  //     current project's entry. Doctor should recognize Playwright there
+  //     even when no repo-level .mcp.json/.claude settings file exists.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'co-mcp-19-project-'));
+    const home = mkdtempSync(join(tmpdir(), 'co-mcp-19-home-'));
+    try {
+      writeFileSync(join(home, '.claude.json'),
+        JSON.stringify({
+          projects: {
+            [dir]: {
+              mcpServers: {
+                playwright: {
+                  type: 'stdio',
+                  command: 'cmd',
+                  args: ['/c', 'npx', '-y', '@playwright/mcp@latest', '--headless'],
+                },
+              },
+            },
+          },
+        }));
+
+      const state = runDoctor(dir, [], { HOME: home, USERPROFILE: home });
+
+      if (!expectWarn(state, '#19 Claude local-scope MCP config')) {
+        // already failed
+      } else if (state.active_cli === 'claude'
+          && state.playwright_mcp?.claude === true
+          && Array.isArray(state.warnings)
+          && !state.warnings.some((w) => PLAYWRIGHT_RE.test(w))) {
+        pass('Claude local-scope ~/.claude.json Playwright MCP -> no warning');
+      } else {
+        fail(`#19 unexpected state: ${JSON.stringify(state)}`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  // 20. Claude may store Windows project keys with forward slashes while
+  //     --target arrives with backslashes. Those represent the same project.
+  if (process.platform === 'win32') {
+    const dir = mkdtempSync(join(tmpdir(), 'co-mcp-20-project-'));
+    const home = mkdtempSync(join(tmpdir(), 'co-mcp-20-home-'));
+    try {
+      const claudeProjectKey = dir.replace(/\\/g, '/');
+
+      writeFileSync(join(home, '.claude.json'),
+        JSON.stringify({
+          projects: {
+            [claudeProjectKey]: {
+              mcpServers: {
+                playwright: {
+                  type: 'stdio',
+                  command: 'cmd',
+                  args: ['/c', 'npx', '-y', '@playwright/mcp@latest', '--headless'],
+                },
+              },
+            },
+          },
+        }));
+
+      const state = runDoctor(dir, [], { HOME: home, USERPROFILE: home });
+
+      if (state.active_cli === 'claude'
+          && state.playwright_mcp?.claude === true
+          && Array.isArray(state.warnings)
+          && !state.warnings.some((w) => PLAYWRIGHT_RE.test(w))) {
+        pass('Claude local-scope Windows slash-normalized project path -> no warning');
+      } else {
+        fail(`#20 unexpected state: ${JSON.stringify(state)}`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  } else {
+    pass('Claude local-scope Windows slash-normalized project path -> Windows-only');
+  }
 } catch (e) {
   fail(`opencode-mcp-detection tests crashed: ${e.message}`);
 }
