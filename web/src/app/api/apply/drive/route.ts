@@ -1,7 +1,7 @@
 import { getSession, finalizeDrivenSession, extractCurrent, isApplicationFormFn, handoffSession } from "@/lib/apply/session";
 import { driveSession } from "@/lib/apply/drive";
 import { classifyEmpty } from "@/lib/apply/diagnose";
-import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
+import { authorizeDirectUiGesture, recordTerminalReceipt, type CapabilityOutcome } from "@/lib/server/capability-gateway";
 import { sha256Hex } from "@/lib/server/sha256";
 
 export const runtime = "nodejs";
@@ -19,7 +19,8 @@ export async function POST(req: Request) {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
   const { sessionId, cliId = "", goal = "reach", answers } = body;
-  const s = sessionId ? getSession(sessionId) : undefined;
+  if (!sessionId) return Response.json({ error: "sessionId required" }, { status: 400 });
+  const s = getSession(sessionId);
   if (!s) return Response.json({ error: "apply session not found (it may have expired)" }, { status: 404 });
 
   const hostname = s.url ? new URL(s.url).hostname : "unknown";
@@ -39,11 +40,11 @@ export async function POST(req: Request) {
           /* client gone */
         }
       };
+      let outcome: CapabilityOutcome = "succeeded";
       try {
         const page = s.page;
         const isFormReady = async () => {
-      let outcome = "succeeded";
-      try {
+          try {
             return isApplicationFormFn((await extractCurrent(page, s.url)).form);
           } catch {
             return false;

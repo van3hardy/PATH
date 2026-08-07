@@ -251,7 +251,8 @@ const ACTIONS: Record<string, ActionDef> = {
     // Opens the Explorer and builds a discovery search. Zero tokens — it never
     // spends, so it bypasses the confirm gate. The provider clamps/validates.
     run: (raw, ctx) => {
-      if (!ctx.applyExplore) return { status: "ignored", note: "explore unavailable here" };
+      const applyExplore = ctx.applyExplore;
+      if (!applyExplore) return { status: "ignored", note: "explore unavailable here" };
       const run = raw.run === true;
       const merge = raw.merge === true;
       // Clone raw so post-dispatch mutation cannot alter the explore payload.
@@ -262,7 +263,7 @@ const ACTIONS: Record<string, ActionDef> = {
         `Open Explore with your filters?${run ? " (will start scanning)" : ""}`,
         () => {
           ctx.push("/explore");
-          ctx.applyExplore(rawClone, opts);
+          applyExplore(rawClone, opts);
           return {};
         });
     },

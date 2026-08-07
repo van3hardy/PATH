@@ -16,7 +16,7 @@ import {
   recordTerminalReceipt,
   authorizeDirectUiGesture,
   getReceiptPath,
-} from "./src/lib/server/capability-gateway.mjs";
+} from "./src/lib/server/capability-gateway.ts";
 
 function tempReceiptPath() {
   const dir = mkdtempSync(path.join(tmpdir(), "path-web-receipts-"));

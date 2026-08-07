@@ -7,37 +7,41 @@
  *
  * Designed to be imported by Next.js API route handlers (server-side only).
  * The root gateway modules are loaded once via dynamic import and cached.
+ * The root modules are plain JS, so their shapes are typed as `any` here —
+ * only the adapter's own API boundary carries real types.
  */
-import path from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-function resolveRoot() {
+function resolveRoot(): string {
   const env = process.env.CAREER_OPS_ROOT?.trim();
   if (env) return env;
   // Walk up from this module's directory until the repo root
   // (identifiable by path-safety/capability-gateway.mjs) is found.
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let depth = 0; depth < 10; depth++) {
-    if (existsSync(path.join(dir, 'path-safety', 'capability-gateway.mjs'))) return dir;
+    if (existsSync(path.join(dir, "path-safety", "capability-gateway.mjs"))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return path.resolve(process.cwd(), '..');
+  return path.resolve(process.cwd(), "..");
 }
 
 const ROOT = resolveRoot();
-const GATEWAY_URL = pathToFileURL(path.join(ROOT, 'path-safety', 'capability-gateway.mjs')).href;
-const RECEIPTS_URL = pathToFileURL(path.join(ROOT, 'path-safety', 'capability-receipts.mjs')).href;
-const PACKET_URL = pathToFileURL(path.join(ROOT, 'path-safety', 'packet-integrity.mjs')).href;
+const GATEWAY_URL = pathToFileURL(path.join(ROOT, "path-safety", "capability-gateway.mjs")).href;
+const RECEIPTS_URL = pathToFileURL(path.join(ROOT, "path-safety", "capability-receipts.mjs")).href;
+const PACKET_URL = pathToFileURL(path.join(ROOT, "path-safety", "packet-integrity.mjs")).href;
 
-let _gateway = null;
-let _authority = null;
-let _receipts = null;
-let _packet = null;
+// The root gateway modules are untyped JS; caching them under an explicit
+// `any` keeps the strict-mode adapter honest about the boundary.
+let _gateway: any = null;
+let _authority: any = null;
+let _receipts: any = null;
+let _packet: any = null;
 
-async function loadGateway() {
+async function loadGateway(): Promise<{ gateway: any; authority: any; receipts: any; packet: any }> {
   if (!_gateway) {
     const mod = await import(GATEWAY_URL);
     _gateway = mod;
@@ -52,27 +56,54 @@ async function loadGateway() {
   return { gateway: _gateway, authority: _authority, receipts: _receipts, packet: _packet };
 }
 
-export function getReceiptPath() {
-  const dir = path.join(ROOT, '.career-ops-web');
+export type CapabilityActor = "agent" | "direct_user";
+
+export type CapabilityResource = {
+  type: "local" | "external" | "model";
+  id: string;
+  destination?: string;
+};
+
+export type CapabilityMetadata = Record<string, unknown>;
+
+export type CapabilityApproval = { source?: string; [key: string]: unknown } | null;
+
+export type CapabilityOutcome = "succeeded" | "failed";
+
+export type WebCapabilityResult = {
+  decision: string;
+  code: string;
+  scopeHash: string | null;
+  httpStatus: number;
+};
+
+export function getReceiptPath(): string {
+  const dir = path.join(ROOT, ".career-ops-web");
   mkdirSync(dir, { recursive: true });
-  return path.join(dir, 'capability-receipts.jsonl');
+  return path.join(dir, "capability-receipts.jsonl");
 }
 
-export function getRoot() {
+export function getRoot(): string {
   return ROOT;
 }
 
 /**
  * Evaluate a web capability request against the root gateway.
  *
- * @param {string} capabilityId - Catalog capability ID (e.g. 'model.invoke')
- * @param {string} actor - 'agent' or 'direct_user'
- * @param {object} metadata - Normalized metadata (adapter ID, locality, etc.)
- * @param {Array<{type:string,id:string,destination?:string}>} resources
- * @param {object|null} [approval] - Optional approval object from the client
- * @returns {{decision:string,code:string,scopeHash:string|null,httpStatus:number}}
+ * @param capabilityId - Catalog capability ID (e.g. 'model.invoke')
+ * @param actor - 'agent' or 'direct_user'
+ * @param metadata - Normalized metadata (adapter ID, locality, etc.)
+ * @param resources - Capability resources (destination bound into the scope)
+ * @param approval - Optional approval object from the client
+ * @returns {WebCapabilityResult} Decision mapped to an HTTP status
  */
-export async function authorizeWebCapability(capabilityId, actor, metadata, resources, approval = null) {
+export async function authorizeWebCapability(
+  capabilityId: string,
+  actor: CapabilityActor,
+  metadata: CapabilityMetadata,
+  resources: CapabilityResource[],
+  approval: CapabilityApproval = null,
+): Promise<WebCapabilityResult> {
   const { gateway, authority } = await loadGateway();
   const intent = gateway.buildCapabilityIntent({
     capabilityId,
@@ -82,9 +113,9 @@ export async function authorizeWebCapability(capabilityId, actor, metadata, reso
     approval,
   });
   const evaluation = gateway.evaluateCapability(intent, { approvalAuthority: authority });
-  let httpStatus;
-  if (evaluation.decision === 'DENY') httpStatus = 403;
-  else if (evaluation.decision === 'REQUIRE_APPROVAL') httpStatus = 409;
+  let httpStatus: number;
+  if (evaluation.decision === "DENY") httpStatus = 403;
+  else if (evaluation.decision === "REQUIRE_APPROVAL") httpStatus = 409;
   else httpStatus = 200;
   return {
     decision: evaluation.decision,
@@ -100,9 +131,14 @@ export async function authorizeWebCapability(capabilityId, actor, metadata, reso
  * an agent-originated call before the human confirms.
  */
 export async function approveWebCapability(
-  capabilityId, actor, metadata, resources,
-  approvedBy, source = 'human', ttlMs = 5 * 60 * 1000,
-) {
+  capabilityId: string,
+  actor: CapabilityActor,
+  metadata: CapabilityMetadata,
+  resources: CapabilityResource[],
+  approvedBy: string,
+  source = "human",
+  ttlMs = 5 * 60 * 1000,
+): Promise<CapabilityApproval> {
   const { gateway, authority } = await loadGateway();
   const intent = gateway.buildCapabilityIntent({
     capabilityId,
@@ -118,10 +154,15 @@ export async function approveWebCapability(
  * Execute a web capability operation with gateway enforcement and receipt recording.
  * Throws if the capability is not ALLOWED (e.g. no approval, expired, consumed).
  */
-export async function executeWebCapability(
-  capabilityId, actor, metadata, resources,
-  operation, approval, receiptPathOpt,
-) {
+export async function executeWebCapability<T = unknown>(
+  capabilityId: string,
+  actor: CapabilityActor,
+  metadata: CapabilityMetadata,
+  resources: CapabilityResource[],
+  operation: () => Promise<T>,
+  approval: CapabilityApproval,
+  receiptPathOpt?: string,
+): Promise<T> {
   const { gateway, authority, receipts } = await loadGateway();
   const receiptPath = receiptPathOpt || getReceiptPath();
   const sink = receipts.createJsonlReceiptSink(receiptPath);
@@ -131,13 +172,17 @@ export async function executeWebCapability(
     { receiptSink: sink, approvalAuthority: authority },
   );
   if (!result.executed) {
-    const err = new Error(`Capability not executed: ${result.code}`);
+    const err = new Error(`Capability not executed: ${result.code}`) as Error & {
+      code?: string;
+      decision?: string;
+      scopeHash?: string | null;
+    };
     err.code = result.code;
     err.decision = result.decision;
     err.scopeHash = result.scopeHash;
     throw err;
   }
-  return result.result;
+  return result.result as T;
 }
 
 /**
@@ -150,9 +195,15 @@ export async function executeWebCapability(
  * runs in the background.
  */
 export async function recordTerminalReceipt(
-  capabilityId, actor, metadata, resources, approval,
-  outcome = 'succeeded', now = new Date(), receiptPathOpt,
-) {
+  capabilityId: string,
+  actor: CapabilityActor,
+  metadata: CapabilityMetadata,
+  resources: CapabilityResource[],
+  approval: CapabilityApproval,
+  outcome: CapabilityOutcome = "succeeded",
+  now: Date = new Date(),
+  receiptPathOpt?: string,
+): Promise<void> {
   const { gateway, authority, receipts, packet } = await loadGateway();
   const intent = gateway.buildCapabilityIntent({
     capabilityId,
@@ -166,7 +217,7 @@ export async function recordTerminalReceipt(
   );
   const receipt = {
     timestamp: now.toISOString(),
-    event: outcome === 'succeeded' ? 'capability_succeeded' : 'capability_failed',
+    event: outcome === "succeeded" ? "capability_succeeded" : "capability_failed",
     capabilityId,
     scopeHash: evaluation.scopeHash,
     decision: evaluation.decision,
@@ -189,25 +240,29 @@ export async function recordTerminalReceipt(
  * calls), call authorizeWebCapability directly with the approval from the
  * request body.
  */
-export async function authorizeDirectUiGesture(capabilityId, metadata, resources) {
+export async function authorizeDirectUiGesture(
+  capabilityId: string,
+  metadata: CapabilityMetadata,
+  resources: CapabilityResource[],
+): Promise<{ decision: string; code: string; scopeHash: string | null; approval: CapabilityApproval }> {
   const { gateway, authority } = await loadGateway();
   const intentNoApproval = gateway.buildCapabilityIntent({
     capabilityId,
-    actor: 'direct_user',
+    actor: "direct_user",
     metadata: metadata || {},
     resources,
     approval: null,
   });
   const approval = gateway.approveCapability(intentNoApproval, {
     authority,
-    source: 'direct_ui',
-    approvedBy: 'web-ui-direct-gesture',
+    source: "direct_ui",
+    approvedBy: "web-ui-direct-gesture",
     ttlMs: 5 * 60 * 1000,
   });
   // Rebuild intent WITH the approval so evaluateCapability sees it.
   const intent = gateway.buildCapabilityIntent({
     capabilityId,
-    actor: 'direct_user',
+    actor: "direct_user",
     metadata: metadata || {},
     resources,
     approval,
