@@ -29,7 +29,8 @@
  *   node scan-ats-full.mjs --help               # print this usage block and exit
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync } from 'fs';
+import { createHash } from 'crypto';
 import { pathToFileURL } from 'url';
 import path from 'path';
 import yaml from 'js-yaml';
@@ -39,6 +40,7 @@ import greenhouse from './providers/greenhouse.mjs';
 import lever from './providers/lever.mjs';
 import ashby from './providers/ashby.mjs';
 import workday from './providers/workday.mjs';
+import icims from './providers/icims.mjs';
 import { buildTitleFilter, buildLocationFilter, buildContentFilter, matchedTitleKeywords, loadSeenUrls, normalizeUrlForDedup, appendToPipeline, appendToScanHistory, loadBlacklist } from './scan.mjs';
 import { SEED_SOURCES, toPortalEntry } from './seeds/vc-portfolios.mjs';
 import { normalizeCompany } from './tracker-utils.mjs';
@@ -77,7 +79,7 @@ export function entryOnHost(name, careersUrl, isCanonicalHost) {
 
 // Each source: the provider module that does the fetching, plus how to turn a
 // dataset entry into a synthetic PortalEntry the provider can detect/fetch.
-const SOURCES = {
+export const SOURCES = {
   greenhouse: {
     provider: greenhouse,
     dataset: `${DATASET_BASE}/greenhouse_companies.json`,
@@ -112,6 +114,13 @@ const SOURCES = {
         h => h === `${tenant}.${instance}.myworkdayjobs.com` && h.endsWith('.myworkdayjobs.com'),
       );
     },
+  },
+  icims: {
+    provider: icims,
+    dataset: `${DATASET_BASE}/icims_companies.json`,
+    toEntry: (slug) => SLUG_RE.test(String(slug))
+      ? entryOnHost(String(slug), `https://careers-${slug}.icims.com/jobs/search?ss=1&in_iframe=1`, h => h === `careers-${String(slug).toLowerCase()}.icims.com`)
+      : null,
   },
 };
 
@@ -429,15 +438,97 @@ export function withTimeout(promise, ms, label) {
 
 // ── Parallel fetch with concurrency limit ───────────────────────────
 
-async function parallelEach(items, limit, fn) {
-  let i = 0;
+export async function parallelEach(items, limit, fn, onItemDone = null, shouldStop = null) {
+  let next = 0;
+  let done = 0;
+  const inFlight = new Set();
   async function worker() {
-    while (i < items.length) {
-      const item = items[i++];
-      await fn(item);
+    while (next < items.length) {
+      // Checked before claiming an index, so a stopped run leaves `next` where
+      // the unclaimed work starts and onItemDone's resumeAt stays truthful.
+      if (shouldStop && shouldStop()) return;
+      const idx = next++;
+      inFlight.add(idx);
+      try {
+        await fn(items[idx], idx);
+      } finally {
+        inFlight.delete(idx);
+        done++;
+        // Lowest not-yet-finished index: everything below it is complete, so
+        // a resumed run can restart exactly here without skipping work.
+        const resumeAt = inFlight.size ? Math.min(...inFlight) : next;
+        if (onItemDone) onItemDone({ done, resumeAt });
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+}
+
+// ── Resume checkpoint machinery ─────────────────────────────────────
+
+// checkpointed every CHECKPOINT_EVERY companies so --resume can continue a
+// dead run (with its ORIGINAL date window) instead of restarting from zero.
+const CHECKPOINT_PATH = 'data/cache/ats-full-checkpoint.json';
+
+export function loadCheckpoint(file = CHECKPOINT_PATH) {
+  if (!existsSync(file)) return null;
+  try {
+    const cp = JSON.parse(readFileSync(file, 'utf-8'));
+    if (cp?.version !== 1) return null;
+    // A version tag alone isn't enough: `current` is consumed unchecked below
+    // (`entriesAll.slice(resumeAt)`), so a truncated or hand-edited record with
+    // a missing/non-numeric resumeAt would silently rescan from zero and then
+    // persist `startAt + resumeAt === NaN` into every later checkpoint — a state
+    // no subsequent resume can recover from. Reject the malformed record instead.
+    if (cp.current !== null && cp.current !== undefined && !validCheckpointCurrent(cp.current)) return null;
+    return cp;
+  } catch {
+    return null;
+  }
+}
+
+function validCheckpointCurrent(cur) {
+  return typeof cur === 'object'
+    && typeof cur.name === 'string'
+    && Number.isInteger(cur.resumeAt) && cur.resumeAt >= 0
+    && Number.isInteger(cur.datasetLen) && cur.datasetLen >= 0;
+}
+
+// A checkpoint written under different scan settings must not be resumed —
+// silently mixing sources, caps, or undated policy would corrupt the run's
+// semantics. --shuffle is never resumable: the sampled order isn't reproducible.
+export function checkpointCompatible(cp, opts) {
+  return Boolean(cp)
+    && !opts.shuffle
+    && JSON.stringify(cp.ats) === JSON.stringify(opts.ats)
+    && (cp.limit ?? null) === (opts.limit === Infinity ? null : opts.limit)
+    && cp.includeUndated === opts.includeUndated;
+}
+
+// Never throws: this runs from parallelEach's `finally`, so an escaping error
+// (ENOSPC, EACCES, read-only volume) would reject the whole sweep and discard
+// every in-memory match from a multi-hour run — the checkpoint killing the work
+// it exists to protect. A failed write costs resumability, not the results.
+function writeCheckpoint(cp) {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const tmp = `${CHECKPOINT_PATH}.tmp`;
+    writeFileSync(tmp, JSON.stringify(cp), 'utf-8');
+    renameSync(tmp, CHECKPOINT_PATH); // atomic: a crash mid-write can't corrupt the checkpoint
+    return true;
+  } catch (err) {
+    console.error(`\n⚠ checkpoint write failed (${err.message}) — sweep continues, --resume unavailable`);
+    return false;
+  }
+}
+
+// Cheap content fingerprint of a source's company list. --resume relies on the
+// dataset order being byte-for-byte reproducible; a same-length regeneration
+// with different members would pass a bare length check and silently resume at
+// the wrong offset (companies skipped or re-scanned). Hashing the list detects
+// that drift so we can fail loudly instead.
+export function datasetFingerprint(list) {
+  return createHash('sha1').update(JSON.stringify(list)).digest('hex').slice(0, 16);
 }
 
 // ── Liveness verification (reuses liveness-browser.mjs) ────────────
@@ -531,6 +622,11 @@ async function main() {
   // would just be the same message repeated thousands of times).
   let noDateSkipCompanies = 0;
   let noDateSkipJobs = 0;
+  // Boards that hit a provider's hard page cap (icims). Unlike a Workday
+  // truncation this isn't a network hiccup, so a sequential retry would just
+  // re-hit the cap — it's reported, not retried, so capped coverage is visible
+  // instead of passing for a fully-walked board.
+  let cappedBoards = 0;
   const datasetStatus = {};
 
   for (const name of opts.ats) {
@@ -549,6 +645,10 @@ async function main() {
       try {
         const jobs = await source.provider.fetch(entry, ctx);
         if (jobs.workdayNoDateSkip) { noDateSkipCompanies++; noDateSkipJobs += jobs.length; }
+        if (jobs.icimsTruncated) {
+          cappedBoards++;
+          if (opts.verbose) console.error(`  ⚠ ${name}/${entry.name}: hit the page cap — later postings not scanned`);
+        }
         for (const job of jobs) {
           if (!job.url || !job.title) continue;
           // Confirmed-stale postings are always dropped. Undated postings are
@@ -684,6 +784,7 @@ async function main() {
       postingsAnnotatedBlacklisted: blacklistResult.annotatedBlacklisted,
       postingsDroppedContent: droppedContent,
       unreachableBoards: totalErrors,
+      cappedBoards,
       saved,
       offers: offers.map(o => ({
         company: o.company,
