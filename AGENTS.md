@@ -315,6 +315,18 @@ Two separate axes:
 
 ---
 
+## Capability Gateway -- CRITICAL
+
+Consequential effects (local write, external read, external write, spend, destructive) run through the capability gateway in `path-safety/`. `capability-catalog.mjs` is the sole manifest of capability effects; `capability-gateway.mjs` validates every intent, binds approvals to an exact `scopeHash` of `capabilityId` + actor + metadata + resources + expiry, and returns `ALLOW`, `REQUIRE_APPROVAL`, or `DENY`. `browser.submit` and every unknown capability are denied with no override.
+
+- **Approval semantics.** A direct CLI or direct UI gesture is recorded as direct-user approval for that exact call. An agent-originated consequential call requires a human-bound approval bound to the exact intent; a stale or mismatched approval is rejected.
+- **Receipts.** `capability-receipts.mjs` appends content-minimized, hash-chained JSONL receipts. Metadata and resources appear only as hashes — never raw prompts, CV text, form answers, environment values, tokens, or plugin payloads. Web receipts live at `.career-ops-web/capability-receipts.jsonl`, following the repo's git/backup retention.
+- **Plugin targeting.** A plugin invocation runs exactly the selected plugin ID and hook (`plugins/_engine.mjs`), bound as `plugin.<id>.<hook>`. Provider plugins remain explicit-config-only; nothing auto-detects.
+- **Local/cloud distinction.** Local model/CLI adapters are first-class; the gateway does not require OpenAI or any cloud provider.
+- **Bypass limitations.** This is an application-level boundary, not a sandbox. Local malicious code is not sandboxed, and direct local filesystem access can bypass an application-level gateway. Client confirmation is a UX preflight; the server/Node gateway is authoritative.
+
+---
+
 ## CI/CD, Community and Governance
 
 - **GitHub Actions** on every PR: the full `test-all.mjs` suite, risk-based auto-labeler (🔴 core-architecture, ⚠️ agent-behavior, 📄 docs), first-timer welcome bot. **Branch protection** on `main`: status checks required, no direct pushes (except admin bypass). **Dependabot** on npm/Go/Actions.
@@ -395,3 +407,13 @@ One TSV file per evaluation at `batch/tracker-additions/{num}-{company-slug}.tsv
 - No markdown bold (`**`) in status field
 - No dates in status field (use the date column)
 - No extra text (use the notes column)
+
+---
+
+<!-- disciplined-work-plugin: begin -->
+
+Disciplined work is in effect for this project. Every completed contract runs the
+project-local Disciplined Work gate (`.disciplined-work/run_gate.py`) before
+completion is claimed.
+
+<!-- disciplined-work-plugin: end -->

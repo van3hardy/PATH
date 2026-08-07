@@ -63,6 +63,13 @@ Every evaluated offer is registered. `data/applications.md` is the canonical tra
 ### Self-update — `update-system.mjs`
 Safely pulls new system files from upstream without touching user data. It backs up, fetches, re-execs the target updater (resolving its import closure so a new import can't break the upgrade), then checks out only `SYSTEM_PATHS`. `BOOTSTRAP_PATHS` covers very old installs.
 
+### Capability gateway — `path-safety/`
+The enforcement boundary for consequential effects. `capability-catalog.mjs` is the sole manifest of capability effects (`local.write`, `external.read`, `external.write`, `spend`, `destructive`; `read` with local-only resources is non-consequential). `capability-gateway.mjs` normalizes every intent, binds any approval to an exact `scopeHash` of the intent, and returns `ALLOW` / `REQUIRE_APPROVAL` / `DENY`; `browser.submit` and every unknown capability are denied. `capability-receipts.mjs` appends content-minimized, hash-chained receipts — metadata and resources appear only as hashes, never raw prompts, CV text, form answers, environment values, tokens, or plugin payloads — to `.career-ops-web/capability-receipts.jsonl` for web operations.
+
+The gateway is enforced at every consequential chokepoint: plugin hooks execute only the selected plugin ID (`plugins/_engine.mjs`), the web action registry dispatches against catalog capabilities, and the web API routes authorize before resolving a CLI, spawning a process, launching Playwright, navigating, or filling. A direct UI gesture records a direct-user approval for that exact call; agent-originated calls require a human-bound approval. The web returns `403` for `DENY` and `409` for `REQUIRE_APPROVAL` before any chokepoint runs. Local model/CLI adapters are first-class; the gateway does not require any cloud provider.
+
+**Limits:** the gateway is an application-level boundary, not a sandbox. Local malicious code is not sandboxed, and direct local filesystem access can bypass an application-level gateway. Client-side confirmation is a UX preflight; the server/Node gateway is authoritative.
+
 ### Multi-CLI entry files
 Each CLI reads its own entry file, all of which point at the canonical `AGENTS.md`: `CLAUDE.md` (full), and thin `@AGENTS.md` redirect wrappers `OPENCODE.md`, `CODEX.md`, `GEMINI.md`, plus the `.agents/skills/` skill entrypoints. This is the [open agent skill standard](https://agentskills.io).
 

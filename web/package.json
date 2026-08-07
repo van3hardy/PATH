@@ -2,6 +2,7 @@
   "name": "@career-ops/web",
   "version": "0.3.0",
   "private": true,
+  "type": "module",
   "description": "Official web experience for career-ops — local-first.",
   "scripts": {
     "dev": "next dev",

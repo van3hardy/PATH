@@ -1,5 +1,7 @@
 import { fillSession, handoffSession, getSession } from "@/lib/apply/session";
 import { resolveTailoredCv, companyFromTitle } from "@/lib/apply/cv";
+import { authorizeDirectUiGesture, executeWebCapability } from "@/lib/server/capability-gateway";
+import { sha256Hex } from "@/lib/server/sha256";
 import type { ApplyField } from "@/lib/apply/extract";
 
 export const runtime = "nodejs";
@@ -19,13 +21,23 @@ export async function POST(req: Request) {
   const { sessionId, answers = {}, fields = [], handoff, company } = body;
   if (!sessionId) return Response.json({ error: "sessionId required" }, { status: 400 });
 
-  // Resolve the tailored CV server-side (never trust a client path): by the
-  // offer's company if known, else best-effort from the form title.
   const session = getSession(sessionId);
-  const cvPath = resolveTailoredCv(company) ?? resolveTailoredCv(companyFromTitle(session?.title)) ?? undefined;
+  if (!session) return Response.json({ error: "apply session not found" }, { status: 404 });
+  const hostname = session.url ? new URL(session.url).hostname : "unknown";
+  const metadata = { hostname, sessionIdHash: sha256Hex(sessionId), fieldCount: fields.length };
+  const resources = [{ type: "external" as const, id: "application-form", destination: hostname }];
+  const auth = await authorizeDirectUiGesture("browser.fill", metadata, resources);
+  if (auth.decision === "DENY") return Response.json({ error: "capability denied", code: auth.code }, { status: 403 });
+  if (auth.decision !== "ALLOW") return Response.json({ error: "approval required", code: auth.code, scopeHash: auth.scopeHash }, { status: 409 });
+
+  const cvPath = resolveTailoredCv(company) ?? resolveTailoredCv(companyFromTitle(session.title)) ?? undefined;
 
   try {
-    const result = await fillSession(sessionId, answers, fields, cvPath);
+    const result = await executeWebCapability(
+      "browser.fill", "direct_user", metadata, resources,
+      () => fillSession(sessionId, answers, fields, cvPath),
+      auth.approval,
+    );
     if (handoff) await handoffSession(sessionId).catch(() => {});
     return Response.json({ ...result, handedOff: !!handoff, cvAttached: !!cvPath });
   } catch (e) {
