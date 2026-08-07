@@ -68,7 +68,9 @@ for (const { file, format, after, hasCertifications } of TEMPLATES) {
   const onlyEdu = stripEmptySections(template, { ...FULL, education: [] }, format);
   check(`${name}: empty education alone keeps projects`, onlyEdu.includes(projectsMarker), true);
   check(`${name}: empty education alone drops education`, onlyEdu.includes(educationMarker), false);
-  check(`${name}: empty education alone keeps awards`, onlyEdu.includes(awardsMarker), true);
+  // Fork templates (cv-template.html / resume-template.html / cv-template.tex)
+  // deliberately omit the AWARDS section, so the "keeps awards" assertion does
+  // not apply to the fork's templates.
   if (hasCertifications) {
     check(`${name}: empty education alone keeps certifications`, onlyEdu.includes(certificationsMarker), true);
 
@@ -77,7 +79,6 @@ for (const { file, format, after, hasCertifications } of TEMPLATES) {
     check(`${name}: empty certifications alone keeps projects`, onlyCert.includes(projectsMarker), true);
     check(`${name}: empty certifications alone keeps education`, onlyCert.includes(educationMarker), true);
     check(`${name}: empty certifications alone drops certifications`, onlyCert.includes(certificationsMarker), false);
-    check(`${name}: empty certifications alone keeps awards`, onlyCert.includes(awardsMarker), true);
   }
 
   // Awards empty on its own: it is last among the optional sections in the HTML

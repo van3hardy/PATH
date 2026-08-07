@@ -31,11 +31,15 @@ export function pass(msg) { console.log(`  ✅ ${msg}`); passed++; }
  *
  * Failures increment the shared counter that controls the final process exit
  * code, while still allowing later checks to run and show the full problem set.
+ * process.exitCode is also set so that when this file runs under `node --test`
+ * the runner reports it as failed and exits non-zero — without it, a fail()
+ * from a fork helper printed `❌` but the suite still exited 0 (silent false
+ * green).
  *
  * @param {string} msg - Human-readable failure message for the terminal log.
  * @returns {void}
  */
-export function fail(msg) { console.log(`  ❌ ${msg}`); failed++; }
+export function fail(msg) { console.log(`  ❌ ${msg}`); failed++; process.exitCode = 1; }
 
 /**
  * Record and print one non-fatal warning.
