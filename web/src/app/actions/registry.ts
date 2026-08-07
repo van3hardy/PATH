@@ -7,11 +7,15 @@
 // parsed CLIENT-SIDE; the registry validates args by hand (no zod dep) and gates
 // side-effects. Resolution of "all the Anthropic ones" happens here, off the
 // client pipeline snapshot — the model never sees or invents URLs.
+//
+// Every consequential action returns a `confirm` result with a catalog
+// capabilityId and frozen resources. The `run` closure is one-shot and captures
+// arguments by value, so model-supplied JSON cannot self-approve or mutate
+// behaviour after dispatch. Navigation and filtering are immediate local reads.
 
 import type { Application, InboxJob } from "@/lib/career-ops";
 import type { Job } from "@/components/jobs/job-store";
 
-export const AUTO_FIRE_MAX = 3; // fire ≤3 evaluations silently; confirm above that
 export const BATCH_CAP = 12; // hard ceiling on a single fan-out
 
 // Canonical states (templates/states.yml) — the web validates against the same set.
@@ -59,28 +63,26 @@ export type ProfilePatch = {
   seniority?: string;
 };
 
-// House-style hand validation (no zod). Keeps only well-formed, confident fields.
-function coerceProfile(raw: Record<string, unknown>): ProfilePatch {
-  const out: ProfilePatch = {};
-  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
-  const num = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
-  out.name = str(raw.name);
-  out.email = str(raw.email);
-  out.location = str(raw.location);
-  out.currency = str(raw.currency);
-  out.remote = str(raw.remote);
-  out.seniority = str(raw.seniority);
-  out.compMin = num(raw.compMin);
-  out.compMax = num(raw.compMax);
-  if (Array.isArray(raw.roles)) out.roles = raw.roles.filter((r): r is string => typeof r === "string" && r.trim().length > 0).map((r) => r.trim()).slice(0, 6);
-  return out;
-}
-
 export type DoneInfo = { jobIds?: string[]; batchId?: string; note?: string };
+
+export type ResourceRef = {
+  type: "local" | "external" | "model";
+  id: string;
+  destination?: string;
+};
+
+export type ConfirmResult = {
+  status: "confirm";
+  summary: string;
+  capabilityId: string;
+  resources: ReadonlyArray<Readonly<ResourceRef>>;
+  run: () => DoneInfo;
+};
+
 export type DispatchResult =
   | ({ status: "done" } & DoneInfo)
   | { status: "ignored"; note?: string }
-  | { status: "confirm"; summary: string; run: () => DoneInfo };
+  | ConfirmResult;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const isStr = (v: unknown): v is string => typeof v === "string" && v.length > 0;
@@ -100,26 +102,65 @@ function genBatchId(): string {
   return `batch-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
 }
 
+// House-style hand validation (no zod). Keeps only well-formed, confident fields.
+function coerceProfile(raw: Record<string, unknown>): ProfilePatch {
+  const out: ProfilePatch = {};
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const num = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+  out.name = str(raw.name);
+  out.email = str(raw.email);
+  out.location = str(raw.location);
+  out.currency = str(raw.currency);
+  out.remote = str(raw.remote);
+  out.seniority = str(raw.seniority);
+  out.compMin = num(raw.compMin);
+  out.compMax = num(raw.compMax);
+  if (Array.isArray(raw.roles)) out.roles = raw.roles.filter((r): r is string => typeof r === "string" && r.trim().length > 0).map((r) => r.trim()).slice(0, 6);
+  return out;
+}
+
+// Build a confirm result with frozen resources and a one-shot run closure.
+// The closure captures arguments by value so post-dispatch mutation cannot
+// change the executed intent.
+function confirm(
+  capabilityId: string,
+  resources: ResourceRef[],
+  summary: string,
+  run: () => DoneInfo,
+): ConfirmResult {
+  const frozenResources = Object.freeze(
+    resources.map((r) => Object.freeze({ ...r })),
+  ) as unknown as ReadonlyArray<Readonly<ResourceRef>>;
+  let called = false;
+  return {
+    status: "confirm",
+    capabilityId,
+    resources: frozenResources,
+    summary,
+    run: () => {
+      if (called) return {} as DoneInfo;
+      called = true;
+      return run();
+    },
+  };
+}
+
 // ── actions ──────────────────────────────────────────────────────────────
 type ActionDef = {
-  sideEffect: "none" | "spend" | "write";
-  // parse returns typed args or null (invalid → envelope ignored)
   run: (raw: Record<string, unknown>, ctx: ActionCtx) => DispatchResult;
 };
 
 const ACTIONS: Record<string, ActionDef> = {
   navigate: {
-    sideEffect: "none",
     run: (raw, ctx) => {
-      const path = raw.path;
-      if (!isStr(path) || !isAllowedPath(path)) return { status: "ignored", note: "blocked navigation" };
-      ctx.push(path);
+      const p = raw.path;
+      if (!isStr(p) || !isAllowedPath(p)) return { status: "ignored", note: "blocked navigation" };
+      ctx.push(p);
       return { status: "done" };
     },
   },
 
   filterPipeline: {
-    sideEffect: "none",
     run: (raw, ctx) => {
       const sp = new URLSearchParams();
       const tab = typeof raw.tab === "string" ? raw.tab.toUpperCase() : "";
@@ -138,25 +179,23 @@ const ACTIONS: Record<string, ActionDef> = {
   },
 
   evaluate: {
-    sideEffect: "spend",
     run: (raw, ctx) => {
       const url = raw.url;
       if (!isStr(url) || !/^https?:\/\//i.test(url)) return { status: "ignored", note: "invalid url" };
       const ex = ctx.jobForUrl(url);
       if (ex && ex.status !== "error" && !raw.rerun) return { status: "ignored", note: "already evaluated" };
-      const id = ctx.startJob({
-        title: isStr(raw.title) ? String(raw.title) : "Evaluate",
-        subtitle: isStr(raw.subtitle) ? String(raw.subtitle) : undefined,
-        kind: "evaluate",
-        input: url,
-        page: "/pipeline",
-      });
-      return { status: "done", jobIds: id ? [id] : [] };
+      const title = isStr(raw.title) ? String(raw.title) : "Evaluate";
+      const input = String(url);
+      return confirm("model.invoke", [{ type: "model", id: "evaluate" }],
+        `Evaluate "${title}"?`,
+        () => {
+          const id = ctx.startJob({ title, kind: "evaluate", input, page: "/pipeline" });
+          return { jobIds: id ? [id] : [] };
+        });
     },
   },
 
   evaluateCompany: {
-    sideEffect: "spend",
     run: (raw, ctx) => {
       const company = raw.company;
       if (!isStr(company)) return { status: "ignored", note: "missing company" };
@@ -164,7 +203,6 @@ const ACTIONS: Record<string, ActionDef> = {
       const rerun = raw.rerun === true;
       const cap = Number.isFinite(Number(raw.max)) ? Math.min(BATCH_CAP, Number(raw.max)) : BATCH_CAP;
 
-      // statusScope: only 'inbox' is supported (Application rows carry no URL).
       const matches = ctx.inbox.filter((j) => {
         if (j.done) return false;
         const c = normCompany(j.company);
@@ -185,74 +223,84 @@ const ACTIONS: Record<string, ActionDef> = {
         };
       }
 
-      const fire = (): DoneInfo => {
-        const batchId = pending.length > 1 ? genBatchId() : undefined;
-        const ids = pending
-          .map((j) =>
-            ctx.startJob({
-              title: `Evaluate · ${j.company}`,
-              subtitle: j.role,
-              kind: "evaluate",
-              input: j.url,
-              page: "/pipeline",
-              batchId,
-            }),
-          )
-          .filter((x): x is string => !!x);
-        return { jobIds: ids, batchId };
-      };
+      // Snapshot by value so post-dispatch inbox mutation cannot change the batch.
+      const snapshot = pending.map((j) => ({ company: j.company, role: j.role, url: j.url }));
 
-      if (pending.length <= AUTO_FIRE_MAX) return { status: "done", ...fire() };
-      return {
-        status: "confirm",
-        summary: `Evaluate ${pending.length} ${company} postings? (~${pending.length} worker${pending.length > 1 ? "s" : ""})`,
-        run: fire,
-      };
+      return confirm("model.invoke", [{ type: "model", id: "evaluate" }],
+        `Evaluate ${pending.length} ${company} posting${pending.length > 1 ? "s" : ""}?`,
+        () => {
+          const batchId = snapshot.length > 1 ? genBatchId() : undefined;
+          const ids = snapshot
+            .map((j) =>
+              ctx.startJob({
+                title: `Evaluate · ${j.company}`,
+                subtitle: j.role,
+                kind: "evaluate",
+                input: j.url,
+                page: "/pipeline",
+                ...(batchId !== undefined ? { batchId } : {}),
+              }),
+            )
+            .filter((x): x is string => !!x);
+          return { jobIds: ids, batchId };
+        });
     },
   },
 
   explore: {
-    // FREE: opens the Explorer and builds a discovery search. Zero tokens — it
-    // never spends, so it bypasses the confirm gate. The provider clamps/validates.
-    sideEffect: "none",
+    // Opens the Explorer and builds a discovery search. Zero tokens — it never
+    // spends, so it bypasses the confirm gate. The provider clamps/validates.
     run: (raw, ctx) => {
       if (!ctx.applyExplore) return { status: "ignored", note: "explore unavailable here" };
       const run = raw.run === true;
       const merge = raw.merge === true;
-      ctx.push("/explore");
-      ctx.applyExplore(raw, { merge, run });
-      return { status: "done", note: run ? "Scanning the ATS network for fresh roles (free)…" : "Opened Explore with your filters." };
+      // Clone raw so post-dispatch mutation cannot alter the explore payload.
+      const rawClone = structuredClone(raw) as Record<string, unknown>;
+      const opts = Object.freeze({ merge, run });
+      return confirm("external.read",
+        [{ type: "external", id: "job-discovery", destination: "configured-ATS-providers" }],
+        `Open Explore with your filters?${run ? " (will start scanning)" : ""}`,
+        () => {
+          ctx.push("/explore");
+          ctx.applyExplore(rawClone, opts);
+          return {};
+        });
     },
   },
 
   research: {
-    sideEffect: "spend",
     run: (raw, ctx) => {
       const target = raw.target;
       if (!isStr(target)) return { status: "ignored", note: "missing target" };
-      const id = ctx.startJob({
-        title: isStr(raw.title) ? String(raw.title) : "Research",
-        kind: "research",
-        input: target,
-        page: "/pipeline",
-      });
-      return { status: "done", jobIds: id ? [id] : [] };
+      const title = isStr(raw.title) ? String(raw.title) : "Research";
+      const input = String(target);
+      return confirm("model.invoke", [{ type: "model", id: "research" }],
+        `Research "${title}"?`,
+        () => {
+          const id = ctx.startJob({ title, kind: "research", input, page: "/pipeline" });
+          return { jobIds: id ? [id] : [] };
+        });
     },
   },
 
   generatePdf: {
-    sideEffect: "spend",
     run: (raw, ctx) => {
       const n = String(raw.n ?? "").trim();
       if (!n) return { status: "ignored", note: "need an application #" };
       const app = ctx.applications.find((a) => a.n === n);
-      const id = ctx.startJob({ title: `CV PDF · ${app?.company ?? `#${n}`}`, subtitle: "tailored CV", kind: "pdf", input: n, page: `/pipeline/${n}` });
-      return { status: "done", jobIds: id ? [id] : [] };
+      const title = `CV PDF · ${app?.company ?? `#${n}`}`;
+      const page = `/pipeline/${n}`;
+      const input = n;
+      return confirm("model.invoke", [{ type: "model", id: "pdf" }],
+        `Generate CV PDF for ${app ? `${app.company} · ${app.role}` : `#${n}`}?`,
+        () => {
+          const id = ctx.startJob({ title, subtitle: "tailored CV", kind: "pdf", input, page });
+          return { jobIds: id ? [id] : [] };
+        });
     },
   },
 
   setStatus: {
-    sideEffect: "write",
     run: (raw, ctx) => {
       const n = String(raw.n ?? "").trim();
       const status = String(raw.status ?? "").trim();
@@ -260,45 +308,65 @@ const ACTIONS: Record<string, ActionDef> = {
       if (!n || !canon) return { status: "ignored", note: "need an application # and a canonical status" };
       const app = ctx.applications.find((a) => a.n === n);
       const label = app ? `${app.company} · ${app.role}` : `#${n}`;
-      return {
-        status: "confirm",
-        summary: `Mark ${label} → ${canon}?`,
-        run: () => {
-          ctx.writeStatus(n, canon);
-          return { note: `Marked #${n} as ${canon}.` };
-        },
-      };
+      const nn = n;
+      const cc = canon;
+      return confirm("local.write", [{ type: "local", id: "data/applications.md" }],
+        `Mark ${label} → ${cc}?`,
+        () => {
+          ctx.writeStatus(nn, cc);
+          return { note: `Marked #${nn} as ${cc}.` };
+        });
     },
   },
 
   apply: {
-    sideEffect: "none",
     run: (raw, ctx) => {
       const url = raw.url;
       if (!isStr(url) || !/^https?:\/\//i.test(url)) return { status: "ignored", note: "need an application form URL" };
-      ctx.startApply(url);
-      return { status: "done", note: "Opening the application form…" };
+      let destination: string;
+      try {
+        destination = new URL(url).hostname;
+      } catch {
+        return { status: "ignored", note: "need an application form URL" };
+      }
+      const u = url;
+      return confirm("browser.navigate",
+        [{ type: "external", id: "application-form", destination }],
+        `Open the application form for ${destination}? (does not submit)`,
+        () => {
+          ctx.startApply(u);
+          return { note: "Opening the application form…" };
+        });
     },
   },
 
   setApplyField: {
-    sideEffect: "none",
     run: (raw, ctx) => {
       const field = (raw.field ?? raw.label) as unknown;
       const value = raw.value;
       if (!isStr(field) || typeof value !== "string") return { status: "ignored", note: "need a field and a value" };
-      ctx.setApplyField(String(field), value);
-      return { status: "done", note: `Updated "${field}".` };
+      const f = String(field);
+      const v = value;
+      return confirm("local.write", [{ type: "local", id: "apply-session" }],
+        `Set "${f}" to "${v}"?`,
+        () => {
+          ctx.setApplyField(f, v);
+          return { note: `Updated "${f}".` };
+        });
     },
   },
 
   remember: {
-    sideEffect: "write",
     run: (raw, ctx) => {
       const fact = raw.fact;
       if (!isStr(fact)) return { status: "ignored" };
-      ctx.rememberFact(String(fact).trim());
-      return { status: "done" };
+      const trimmed = String(fact).trim();
+      return confirm("local.write", [{ type: "local", id: "modes/_profile.md" }],
+        `Remember: "${trimmed}"?`,
+        () => {
+          ctx.rememberFact(trimmed);
+          return { note: `Remembered: "${trimmed}".` };
+        });
     },
   },
 
@@ -306,40 +374,42 @@ const ACTIONS: Record<string, ActionDef> = {
   // AND seed the scanner (portals.yml title_filter) so the very first scan has roles.
   // DATA_CONTRACT: deep-merge only proposed keys; never clobber archetypes/narrative.
   setProfile: {
-    sideEffect: "write",
     run: (raw, ctx) => {
       if (!ctx.writeProfile) return { status: "ignored", note: "profile write unavailable here" };
       const p = coerceProfile(raw);
       const has = Object.values(p).some((v) => (Array.isArray(v) ? v.length : v !== undefined));
       if (!has) return { status: "ignored", note: "nothing to save" };
+      const resources: ResourceRef[] = [{ type: "local", id: "config/profile.yml" }];
+      if (p.roles?.length) resources.push({ type: "local", id: "portals.yml" });
       const bits = [p.roles?.length ? `roles: ${p.roles.join(", ")}` : "", p.location ? `in ${p.location}` : "", p.compMin && p.compMax ? `comp ${p.compMin}–${p.compMax}` : ""].filter(Boolean).join(" · ");
-      return {
-        status: "confirm",
-        summary: `Save your profile?${bits ? ` (${bits})` : ""}`,
-        run: () => {
-          ctx.writeProfile!(p as Record<string, unknown>);
-          if (p.roles?.length) ctx.writePortals?.(p.roles, p.location ? [p.location] : undefined);
+      const profileSnapshot = Object.fromEntries(
+        Object.entries(p).filter(([, v]) => v !== undefined),
+      ) as ProfilePatch;
+      return confirm("local.write", resources,
+        `Save your profile?${bits ? ` (${bits})` : ""}`,
+        () => {
+          ctx.writeProfile!(profileSnapshot as Record<string, unknown>);
+          if (profileSnapshot.roles?.length) ctx.writePortals?.([...profileSnapshot.roles], profileSnapshot.location ? [profileSnapshot.location] : undefined);
           return { note: "Profile saved — your matches will sharpen." };
-        },
-      };
+        });
     },
   },
 
   setPortals: {
-    sideEffect: "write",
     run: (raw, ctx) => {
       if (!ctx.writePortals) return { status: "ignored", note: "portals write unavailable here" };
       const roles = Array.isArray(raw.roles) ? raw.roles.filter((r): r is string => typeof r === "string" && r.trim().length > 0).map((r) => r.trim()) : [];
       if (roles.length === 0) return { status: "ignored", note: "no roles" };
-      const location = Array.isArray(raw.location) ? raw.location.filter((l): l is string => typeof l === "string") : undefined;
-      return {
-        status: "confirm",
-        summary: `Set your scan targets to: ${roles.join(", ")}?`,
-        run: () => {
-          ctx.writePortals!(roles, location);
+      const location = Array.isArray(raw.location) ? raw.location.filter((l): l is string => typeof l === "string").map((l) => l.trim()) : undefined;
+      // Deep-copy so post-dispatch mutation of the caller's arrays cannot change the batch.
+      const rolesSnapshot = [...roles];
+      const locationSnapshot = location ? [...location] : undefined;
+      return confirm("local.write", [{ type: "local", id: "portals.yml" }],
+        `Set your scan targets to: ${rolesSnapshot.join(", ")}?`,
+        () => {
+          ctx.writePortals!(rolesSnapshot, locationSnapshot);
           return { note: "Scan targets updated." };
-        },
-      };
+        });
     },
   },
 };

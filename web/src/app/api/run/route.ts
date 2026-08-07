@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot, readMemory } from "@/lib/career-ops";
 import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registry";
+import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,6 +84,12 @@ export async function POST(req: Request) {
     });
   }
   const { spec, binPath } = resolved;
+
+  const modelMetadata = { adapter: cliId, locality: "local" };
+  const modelResources = [{ type: "model" as const, id: kind }];
+  const modelAuth = await authorizeDirectUiGesture("model.invoke", modelMetadata, modelResources);
+  if (modelAuth.decision === "DENY") return new Response(JSON.stringify({ error: "capability denied" }), { status: 403, headers: { "Content-Type": "application/json" } });
+  if (modelAuth.decision !== "ALLOW") return new Response(JSON.stringify({ error: "approval required", scopeHash: modelAuth.scopeHash }), { status: 409, headers: { "Content-Type": "application/json" } });
 
   // These run the REAL core (modes/scripts), not just data — fail clearly if the
   // root is incomplete instead of faking it.
@@ -223,7 +230,7 @@ export async function POST(req: Request) {
         }
       });
       child.on("error", (e) => { send({ type: "error", msg: e.message }); close(); });
-      child.on("close", (code) => {
+      child.on("close", async (code) => {
         const wroteReport = countReports() > reportsBefore;
         const cleanExit = code === 0; // non-zero OR null (killed/signal) = NOT clean
         // Honesty gate (#9): a green "done" with a parsed score requires a CLEAN exit,
@@ -244,6 +251,9 @@ export async function POST(req: Request) {
         } else {
           send({ type: "done", tokens: lastTokens, costUsd: lastCostUsd });
         }
+        try {
+          await recordTerminalReceipt("model.invoke", "direct_user", modelMetadata, modelResources, modelAuth.approval, cleanExit ? "succeeded" : "failed");
+        } catch { /* receipt best-effort */ }
         close();
       });
     },

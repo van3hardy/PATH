@@ -1630,10 +1630,6 @@ async function main() {
 
   // 1. Load providers
   const providers = await loadProviders(PROVIDERS_DIR);
-  // Opt-in: merge enabled keyed/auth-gated provider plugins. Returns immediately
-  // (no discovery, no dotenv, no process.env mutation) when config/plugins.yml is
-  // absent — so a plain scan with no plugins configured stays byte-identical.
-  await mergeProviderPlugins(providers, { root: path.dirname(PROVIDERS_DIR) });
   if (providers.size === 0) {
     console.error('Error: no providers loaded from providers/');
     process.exit(1);
@@ -1655,6 +1651,20 @@ async function main() {
   const config = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
   const companies = Array.isArray(config.tracked_companies) ? config.tracked_companies : [];
   const boards = Array.isArray(config.job_boards) ? config.job_boards : [];
+
+  // Opt-in: merge enabled keyed/auth-gated provider plugins selected by the
+  // portals config. Only provider IDs explicitly referenced by an enabled
+  // portal entry are imported (no surprise network). Returns immediately
+  // (no discovery, no dotenv, no env mutation) when config/plugins.yml is
+  // absent — so a plain scan with no plugins configured stays byte-identical.
+  const selectedIds = new Set([
+    ...companies, ...boards,
+  ].filter(e => e && typeof e === 'object' && typeof e.provider === 'string' && e.enabled !== false)
+    .map(e => e.provider));
+  await mergeProviderPlugins(providers, {
+    root: path.dirname(PROVIDERS_DIR),
+    selectedIds,
+  });
   const titleFilter = buildTitleFilter(config.title_filter);
 
   // Seniority tier classifier integration

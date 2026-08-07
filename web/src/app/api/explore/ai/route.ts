@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot, readMemory } from "@/lib/career-ops";
 import { assembleDedupContext } from "@/lib/core/discover";
+import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
 
 // AI search orchestrates modes/discover.md by running the USER'S configured CLI
 // headless (CLI-agnostic, like the assistant). Web hunting is slow → generous
@@ -41,6 +42,12 @@ export async function POST(req: Request) {
   const resolved = resolveCli(cliId);
   if (!resolved) return Response.json({ error: `CLI '${cliId}' not found on this machine` }, { status: 404 });
   const { spec, binPath } = resolved;
+
+  const modelMetadata = { adapter: cliId, locality: "local" };
+  const modelResources = [{ type: "model" as const, id: "explore" }];
+  const modelAuth = await authorizeDirectUiGesture("model.invoke", modelMetadata, modelResources);
+  if (modelAuth.decision === "DENY") return Response.json({ error: "capability denied" }, { status: 403 });
+  if (modelAuth.decision !== "ALLOW") return Response.json({ error: "approval required", scopeHash: modelAuth.scopeHash }, { status: 409 });
 
   // Read the CANONICAL mode at request time — single source of truth, never a
   // homegrown prompt. Missing (older core) → graceful 400 so the Scan tab stays usable.
@@ -152,8 +159,11 @@ export async function POST(req: Request) {
         safeEnqueue(`\n[error launching ${spec.name}: ${e.message}]`);
         safeClose();
       });
-      child.on("close", () => {
+      child.on("close", async () => {
         if (!emitted) safeEnqueue("_(no output — is the CLI authenticated?)_");
+        try {
+          await recordTerminalReceipt("model.invoke", "direct_user", modelMetadata, modelResources, modelAuth.approval, emitted ? "succeeded" : "failed");
+        } catch { /* receipt best-effort */ }
         safeClose();
       });
     },
