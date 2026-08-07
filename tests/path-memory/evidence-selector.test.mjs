@@ -299,7 +299,7 @@ test('bounded evidence rejects a parent directory replaced by a junction during 
   const originalOpenSync = fs.openSync;
   let junctionInserted = false;
   fs.openSync = function swapParentThenOpen(target, ...args) {
-    if (!junctionInserted && path.resolve(String(target)) === path.resolve(sourcePath)) {
+    if (!junctionInserted && fs.realpathSync(String(target)) === fs.realpathSync(sourcePath)) {
       fs.renameSync(originalDirectory, movedDirectory);
       const type = process.platform === 'win32' ? 'junction' : 'dir';
       if (!createSymlinkOrSkip(t, outsideDirectory, originalDirectory, type)) {
