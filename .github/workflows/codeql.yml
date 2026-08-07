@@ -24,11 +24,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: ${{ matrix.language }}
-
       - name: Setup Go
         if: matrix.language == 'go'
         uses: actions/setup-go@v7
@@ -36,12 +31,21 @@ jobs:
           go-version-file: dashboard/go.mod
           cache-dependency-path: dashboard/go.sum
 
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          config-file: .github/codeql/codeql-config.yml
+
       - name: Build Go
         if: matrix.language == 'go'
         # go build skips *_test.go, so CodeQL's traced build never saw test
         # files (tool status showed Go at 13/26 files scanned). Compiling the
         # test packages without running them (-run '^$') lets the extractor
         # cover them too. The two windows-tagged files stay out by platform.
+        # Setup Go must precede init so CodeQL's go tracer wraps the correct
+        # binary (otherwise the traced build sees nothing and the analysis
+        # fails with "no source code seen").
         run: |
           cd dashboard
           go build ./...

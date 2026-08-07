@@ -31,8 +31,12 @@ function options(overrides = {}) {
   };
 }
 
+// The lifecycle implementation resolves run paths through realpathSync, which on
+// macOS rewrites the /var tmpdir prefix to /private/var. Fixtures must therefore
+// compare against realpath-canonical paths, not the literal rootDir, or injected
+// fs overrides keyed on exact path strings never fire there.
 function runPath(rootDir, runId = 'run-test-001') {
-  return path.join(rootDir, 'data', 'path-runs', runId);
+  return path.join(fs.realpathSync(rootDir), 'data', 'path-runs', runId);
 }
 
 function statePath(rootDir, runId = 'run-test-001') {
@@ -757,7 +761,7 @@ test('each artifact_written event must be immediately followed by its own same-s
 
 test('safe lstat suppresses missing paths but propagates access errors without creating', (t) => {
   const { rootDir } = makeSandbox(t);
-  const dataPath = path.join(rootDir, 'data');
+  const dataPath = path.join(fs.realpathSync(rootDir), 'data');
   let mkdirCalled = false;
   const injected = fsWith({
     lstatSync(target, options) {

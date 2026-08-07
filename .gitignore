@@ -1,5 +1,6 @@
 # Personal data (user fills these)
 cv.md
+article-digest.md
 data/applications.md
 data/applications.db
 data/follow-ups.md
@@ -131,3 +132,15 @@ data/path-runs/
 
 # Web
 .career-ops-web/logo-cache/
+
+# Path — user layer catchall: data/ is personal (AGENTS.md User Layer).
+# Listed after the specific data/ rules so nothing under data/ is committable
+# except the tracked .gitkeep scaffolds.
+data/*
+!data/.gitkeep
+!data/offers/
+!data/offers/.gitkeep
+!data/parser-output/
+!data/parser-output/.gitkeep
+!data/parser-output/**/
+!data/parser-output/**/.gitkeep

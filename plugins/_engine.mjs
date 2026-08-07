@@ -30,6 +30,13 @@ import { pathToFileURL } from 'url';
 import { resolveAndValidate } from './_net.mjs';
 import { readLock, writeLockEntry, diffPlugin, hashPluginTree, consentSurface } from './_lock.mjs';
 import { loadRegistry } from './_registry.mjs';
+import { pluginCapabilityId } from '../path-safety/capability-catalog.mjs';
+import {
+  buildCapabilityIntent,
+  approveCapability,
+  executeCapability,
+  createCapabilityApprovalAuthority,
+} from '../path-safety/capability-gateway.mjs';
 
 /** The complete, closed set of hook kinds. Anything else (apply/submit/…) is rejected. */
 export const HOOK_KINDS = ['provider', 'ingest', 'search', 'notify', 'export'];
@@ -60,6 +67,12 @@ function isReservedEnv(name) {
 
 function warnSkip(label, reason) {
   console.warn(`⚠️  ${label}: skipping — ${reason}`);
+}
+
+function codedError(code, message, cause) {
+  const error = new Error(message, cause ? { cause } : undefined);
+  error.code = code;
+  return error;
 }
 
 function isWithinDirectory(rootAbs, candidateAbs) {
@@ -600,19 +613,59 @@ export async function loadDotenvOnce() {
 }
 
 /**
- * Run one hook across all enabled plugins, each call try/caught + timed out.
- * Cooperative timeout only: Promise.race resolves the wait but does NOT abort a
- * synchronous-hung or process.exit-ing plugin (plain ESM can't preempt without a
- * worker — stated plainly in README). One throwing/slow plugin can't sink the
- * batch; a sync-hang or a process.exit can. Bundled plugins are reviewed to
- * avoid both, exactly like providers/.
+ * Load exactly one enabled, integrity-approved plugin by ID and return its
+ * manifest, hook function, and scoped context. In dry-run mode returns
+ * `{ planned: true, manifest, ctx }` without importing the entry module or
+ * checking the lock gate.
+ *
+ * @param {string} id
+ * @param {string} kind
+ * @param {{ root: string, dryRun?: boolean }} opts
+ * @returns {Promise<{ planned: boolean, manifest: PluginManifestNormalized, hook?: any, ctx: PluginContext }>}
+ */
+export async function loadPlugin(id, kind, { root, dryRun = false }) {
+  const cfg = await loadPluginConfig(root);
+  const manifests = discoverPlugins(pluginRoots(root), resolveSuccessorIds(root));
+  const manifest = manifests.find(m => m.id === id);
+
+  if (!manifest) throw codedError('PLUGIN_NOT_FOUND', `plugin "${id}" not found`);
+  if (!manifest.hooks.includes(kind)) {
+    throw codedError('PLUGIN_HOOK_UNDECLARED',
+      `plugin "${id}" does not declare a "${kind}" hook (has: ${manifest.hooks.join(', ')})`);
+  }
+
+  const { enabled, missingEnv } = pluginStatus(manifest, cfg);
+  if (!enabled) {
+    const code = missingEnv.length ? 'PLUGIN_MISSING_ENV' : 'PLUGIN_DISABLED';
+    const reason = missingEnv.length
+      ? `missing env ${missingEnv.join(', ')}`
+      : 'disabled in config/plugins.yml';
+    throw codedError(code, `plugin "${id}" is ${reason}`);
+  }
+
+  if (dryRun) return { planned: true, manifest, ctx: buildCtx(manifest, { dryRun }) };
+
+  if (!lockGate(manifest, root).load) {
+    throw codedError('PLUGIN_INTEGRITY_FAILED',
+      `plugin "${id}" failed integrity gate — review then run \`node plugins.mjs trust ${id}\``);
+  }
+
+  const hook = await importHook(manifest, kind);
+  if (!hook) throw codedError('PLUGIN_IMPORT_FAILED', `plugin "${id}" failed to import ${manifest.entry}`);
+
+  return { planned: false, manifest, hook, ctx: buildCtx(manifest, { dryRun }) };
+}
+
+/**
+ * Run a hook across ALL enabled plugins (the batch entry point). Each plugin's
+ * call is try/caught + timed out. Cooperative timeout only (see README).
  *
  * @param {string} kind
- * @param {*} payload   For provider this is unused; for ingest none; search a query; export a snapshot; notify a payload.
+ * @param {*} payload
  * @param {{ root: string, dryRun?: boolean, timeoutMs?: number }} opts
  * @returns {Promise<Array<{ id: string, ok: boolean, result?: any, error?: string }>>}
  */
-export async function runHook(kind, payload, { root, dryRun = false, timeoutMs = DEFAULT_HOOK_TIMEOUT_MS }) {
+export async function runAllHooks(kind, payload, { root, dryRun = false, timeoutMs = DEFAULT_HOOK_TIMEOUT_MS }) {
   await loadDotenvOnce();
   const loaded = await loadPlugins(kind, { root, dryRun });
   const results = [];
@@ -635,6 +688,91 @@ export async function runHook(kind, payload, { root, dryRun = false, timeoutMs =
     }
   }
   return results;
+}
+
+/**
+ * Run exactly one selected plugin's hook, gated by the capability gateway.
+ * Returns a stable result object: { id, kind, ok, code, result, error }.
+ *
+ * @param {string} id    Plugin ID.
+ * @param {string} kind  Hook kind (provider, ingest, search, notify, export).
+ * @param {*} payload    For search a query string; for export/notify a payload; for ingest undefined.
+ * @param {{ root: string, dryRun?: boolean, timeoutMs?: number, approval?: object, receiptSink?: Function }} opts
+ * @returns {Promise<{ id: string, kind: string, ok: boolean, code: string, result?: any, error?: string|null }>}
+ */
+export async function runHook(id, kind, payload, {
+  root, dryRun = false, timeoutMs = DEFAULT_HOOK_TIMEOUT_MS, approval, receiptSink,
+} = {}) {
+  await loadDotenvOnce();
+
+  let loaded;
+  try {
+    loaded = await loadPlugin(id, kind, { root, dryRun });
+  } catch (err) {
+    return { id, kind, ok: false, code: err.code || 'PLUGIN_LOAD_FAILED', result: null, error: err.message };
+  }
+
+  if (loaded.planned) {
+    return { id, kind, ok: true, code: 'PLUGIN_DRY_RUN', result: undefined, error: null };
+  }
+
+  const { manifest, hook, ctx } = loaded;
+
+  // Build the capability intent and bind a direct-user approval.
+  const capabilityId = pluginCapabilityId(id, kind);
+  const destination = manifest.allowedHosts.length
+    ? manifest.allowedHosts.join(', ')
+    : 'unknown';
+  const intent = buildCapabilityIntent({
+    capabilityId,
+    actor: 'direct_user',
+    metadata: { pluginId: id, hook: kind },
+    resources: [{ type: 'external', id, destination }],
+    approval: null,
+  });
+
+  const authority = createCapabilityApprovalAuthority();
+  const approvalObj = approveCapability(intent, {
+    authority,
+    source: approval?.source ?? 'direct_cli',
+    approvedBy: approval?.approvedBy ?? 'direct CLI',
+    now: new Date(),
+    ttlMs: 5 * 60_000,
+  });
+
+  const approvedIntent = buildCapabilityIntent({ ...intent, approval: approvalObj });
+
+  // Determine hook invocation signature per kind.
+  const invoke = kind === 'ingest'
+    ? async () => hook(ctx)
+    : kind === 'search'
+      ? async () => hook(payload, ctx)
+      : async () => hook(payload, ctx); // export, notify
+
+  try {
+    const execResult = await executeCapability(approvedIntent, async () => {
+      let timer;
+      const timeoutP = new Promise((_, rej) => {
+        timer = setTimeout(() => {
+          const e = new Error(`timed out after ${timeoutMs}ms`);
+          e.code = 'PLUGIN_HOOK_TIMEOUT';
+          rej(e);
+        }, timeoutMs);
+      });
+      try {
+        return await Promise.race([invoke(), timeoutP]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }, { now: () => new Date(), receiptSink, approvalAuthority: authority });
+
+    return { id, kind, ok: true, code: 'PLUGIN_HOOK_OK', result: execResult.result, error: null };
+  } catch (err) {
+    if (err.message.includes('timed out') || err.code === 'PLUGIN_HOOK_TIMEOUT') {
+      return { id, kind, ok: false, code: 'PLUGIN_HOOK_TIMEOUT', result: null, error: err.message };
+    }
+    return { id, kind, ok: false, code: 'PLUGIN_HOOK_ERROR', result: null, error: err.message };
+  }
 }
 
 /**
@@ -669,7 +807,7 @@ function inactiveProviderStub(id, reason) {
   };
 }
 
-export async function mergeProviderPlugins(providersMap, { root }) {
+export async function mergeProviderPlugins(providersMap, { root, selectedIds, approval, receiptSink } = {}) {
   if (!existsSync(pluginsConfigPath(root))) return; // (1) opted out → inert (no work, no env read)
 
   // Everything past the opt-out gate is wrapped so an UNANTICIPATED throw
@@ -684,9 +822,18 @@ export async function mergeProviderPlugins(providersMap, { root }) {
     const configuredOn = providerManifests.filter(m => cfg?.plugins?.[m.id]?.enabled === true);
     if (configuredOn.length === 0) return;
 
+    // When selectedIds is provided, restrict to the explicitly-requested subset.
+    let toMerge = configuredOn;
+    if (selectedIds !== undefined) {
+      toMerge = configuredOn.filter(m => selectedIds.has(m.id));
+    }
+    if (toMerge.length === 0) return;
+
     await loadDotenvOnce(); // (2) lazy, only now that an enabled provider plugin exists
 
-    for (const manifest of configuredOn) {
+    const gatewayWrap = (approval && receiptSink) || false;
+
+    for (const manifest of toMerge) {
       if (providersMap.has(manifest.id)) {
         warnSkip(manifest.id, 'a core provider already owns this id — plugin not merged');
         continue;
@@ -708,13 +855,59 @@ export async function mergeProviderPlugins(providersMap, { root }) {
         continue;
       }
       const ctx = buildCtx(manifest, { settings: pluginSettings(manifest.id, cfg) });
-      providersMap.set(manifest.id, {
-        id: manifest.id,
-        detect: () => null, // (4) keyed providers never auto-detect
-        fetch: (entry) => hook.fetch(entry, ctx), // (3) ctx injection
-      });
+
+      if (gatewayWrap) {
+        providersMap.set(manifest.id, {
+          id: manifest.id,
+          detect: () => null, // (4) keyed providers never auto-detect
+          fetch: wrapProviderFetch(manifest, hook, ctx, approval, receiptSink),
+        });
+      } else {
+        providersMap.set(manifest.id, {
+          id: manifest.id,
+          detect: () => null,
+          fetch: (entry) => hook.fetch(entry, ctx),
+        });
+      }
     }
   } catch (err) {
     warnSkip('plugins', `provider-plugin merge skipped this run — ${err.message}`);
   }
+}
+
+/**
+ * Wrap a provider plugin's fetch in a capability-gateway executeCapability call,
+ * recording an append-only receipt without exposing the entry payload.
+ */
+function wrapProviderFetch(manifest, hook, ctx, approval, receiptSink) {
+  return async function gatewayFetch(entry) {
+    const capabilityId = pluginCapabilityId(manifest.id, 'provider');
+    const destination = manifest.allowedHosts.length
+      ? manifest.allowedHosts.join(', ')
+      : 'unknown';
+    const intent = buildCapabilityIntent({
+      capabilityId,
+      actor: 'system',
+      metadata: { pluginId: manifest.id, hook: 'provider' },
+      resources: [{ type: 'external', id: manifest.id, destination }],
+      approval: null,
+    });
+
+    const authority = createCapabilityApprovalAuthority();
+    const approvalObj = approveCapability(intent, {
+      authority,
+      source: approval?.source ?? 'configuration',
+      approvedBy: approval?.approvedBy ?? 'configuration',
+      now: new Date(),
+      ttlMs: 24 * 60 * 60 * 1000,
+    });
+
+    const approvedIntent = buildCapabilityIntent({ ...intent, approval: approvalObj });
+
+    const execResult = await executeCapability(approvedIntent, async () => {
+      return await hook.fetch(entry, ctx);
+    }, { now: () => new Date(), receiptSink, approvalAuthority: authority });
+
+    return execResult.result;
+  };
 }

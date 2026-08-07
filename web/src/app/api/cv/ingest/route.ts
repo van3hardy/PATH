@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot } from "@/lib/career-ops";
+import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
 
 // Parse a CV (pasted text or an uploaded PDF) into clean cv.md markdown by running
 // the USER'S OWN CLI headless — the web never ships a heavyweight parser, and the
@@ -99,6 +100,13 @@ export async function POST(req: Request) {
   }
   const { spec, binPath } = resolved;
   const prompt = ingestPrompt(promptSource);
+
+  const modelMetadata = { adapter: cliId, locality: "local" };
+  const modelResources = [{ type: "model" as const, id: "cv-ingest" }];
+  const modelAuth = await authorizeDirectUiGesture("model.invoke", modelMetadata, modelResources);
+  if (modelAuth.decision === "DENY") return Response.json({ error: "capability denied" }, { status: 403 });
+  if (modelAuth.decision !== "ALLOW") return Response.json({ error: "approval required", scopeHash: modelAuth.scopeHash }, { status: 409 });
+
   const isClaude = cliId === "claude";
   const args = isClaude
     ? [
@@ -203,8 +211,11 @@ export async function POST(req: Request) {
         safeEnqueue(`\n[error launching ${spec.name}: ${e.message}]`);
         safeClose();
       });
-      child.on("close", () => {
+      child.on("close", async () => {
         if (!emitted) safeEnqueue("<<cv:error>>{\"reason\":\"no-output\"}");
+        try {
+          await recordTerminalReceipt("model.invoke", "direct_user", modelMetadata, modelResources, modelAuth.approval, emitted ? "succeeded" : "failed");
+        } catch { /* receipt best-effort */ }
         safeClose();
       });
     },
