@@ -88,6 +88,34 @@ export function resolveTrackerPath(rootDir) {
 }
 
 /**
+ * Resolve the workspace root directory that owns a tracker file.
+ *
+ * A tracker lives either in the `data/` layout (workspace root = the tracker's
+ * parent directory) or the root layout (workspace root = the tracker's own
+ * directory). Derived with dirname(), so the answer never drive-qualifies on
+ * Windows.
+ *
+ * @param {string} trackerPath - Tracker path, typically from resolveTrackerPath().
+ * @returns {string} Absolute workspace root directory.
+ */
+export function resolveWorkspaceRoot(trackerPath) {
+  const trackerDir = dirname(trackerPath);
+  return basename(trackerDir) === 'data' ? dirname(trackerDir) : trackerDir;
+}
+
+/**
+ * Resolve the PDF manifest (`data/pdf-index.tsv`) for the workspace that owns
+ * a tracker. `CAREER_OPS_PDF_INDEX` overrides it explicitly.
+ *
+ * @param {string} trackerPath - Tracker path, typically from resolveTrackerPath().
+ * @returns {string} Absolute path to the PDF manifest.
+ */
+export function resolvePdfIndexPath(trackerPath) {
+  return process.env.CAREER_OPS_PDF_INDEX
+    || join(resolveWorkspaceRoot(trackerPath), 'data', 'pdf-index.tsv');
+}
+
+/**
  * Convert the tracker path into one stable absolute spelling before hashing it.
  *
  * Equivalent tracker paths can be written in multiple ways, such as a relative

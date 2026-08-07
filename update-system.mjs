@@ -447,7 +447,7 @@ function gitTimeoutEnvVar(args) {
   return args[0] === 'fetch' ? 'CAREER_OPS_GIT_FETCH_TIMEOUT_MS' : 'CAREER_OPS_GIT_TIMEOUT_MS';
 }
 
-function gitIn(root, ...args) {
+export function gitIn(root, ...args) {
   const timeout = gitTimeoutMs(args);
   try {
     return execFileSync('git', args, { cwd: root, encoding: 'utf-8', timeout }).trim();
@@ -640,6 +640,55 @@ export function prepareMaterializedSkillEntrypointsForStage(paths, root = ROOT) 
     prepared.push(path);
   }
   return prepared;
+}
+
+/**
+ * Delete files staged as additions relative to HEAD under a pathspec.
+ *
+ * Complements `git checkout HEAD -- <path>`, which restores tracked content but
+ * never removes paths HEAD does not contain. Only additions are considered, so
+ * a user file that merely changed is untouched.
+ *
+ * @param {string} pathspec - SYSTEM_PATHS entry (file or directory).
+ * @param {Set<string>} protectedPaths - Paths already dirty/staged BEFORE the
+ *   update ran; never deleted, so a rollback cannot destroy the user's own
+ *   pre-existing staged work under a system pathspec (#2015).
+ * @param {{git?: typeof git, root?: string}} [ctx] - Testability seam: the git
+ *   runner (defaults to the module `git`, bound to ROOT) and the working-tree
+ *   root used for filesystem deletes. Production always uses the defaults; only
+ *   the behavioral rollback test overrides them to drive a throwaway repo.
+ */
+export function removeAdditionsNotInHead(pathspec, protectedPaths = new Set(), ctx = {}) {
+  const runGit = ctx.git || git;
+  const root = ctx.root || ROOT;
+  const spec = pathspec.endsWith('/') ? pathspec.slice(0, -1) : pathspec;
+  let added = '';
+  try {
+    // -z: NUL-delimited, unquoted output, so paths containing spaces or even
+    // newlines survive intact — `split('\n').trim()` would mangle them.
+    added = runGit('diff', '--cached', '-z', '--name-only', '--diff-filter=A', 'HEAD', '--', spec);
+  } catch {
+    // No HEAD yet, or an unreadable pathspec — nothing safe to clean up.
+    return;
+  }
+  for (const file of added.split('\0').filter(Boolean)) {
+    // Never touch something the user already had staged before the update —
+    // only additions THIS update introduced (#2015 review: no data loss).
+    if (protectedPaths.has(file)) continue;
+    let removed = false;
+    try {
+      runGit('rm', '-f', '--ignore-unmatch', '--', file);
+      removed = true;
+    } catch {
+      // Index removal failed (lock/permission). Leave both the index entry AND
+      // the worktree file in place and keep rolling back the rest — deleting
+      // the worktree copy now would strand a staged addition with no file.
+      console.error(`Rollback: could not unstage ${file}; leaving it untouched.`);
+    }
+    if (removed) {
+      try { rmSync(join(root, file), { force: true }); } catch { /* already gone */ }
+    }
+  }
 }
 
 function revertPaths(paths) {

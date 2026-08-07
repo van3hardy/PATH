@@ -407,6 +407,26 @@ export async function runSeedScan(seedId, opts, ctx, seenUrls, label) {
   return { offers, errors, total: capped.length };
 }
 
+// ── Timeout watchdog ─────────────────────────────────────────────────
+
+/**
+ * Race a promise against a timeout, rejecting with a labeled error when the
+ * timeout wins. The losing promise can never leak an unhandled rejection:
+ * Promise.race attaches a rejection handler to every participant.
+ *
+ * @param {Promise} promise - The work to bound.
+ * @param {number} ms - Timeout in milliseconds.
+ * @param {string} label - Human-readable label for the timeout error.
+ * @returns {Promise} The winner's value or a labeled timeout rejection.
+ */
+export function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: timed out after ${Math.round(ms / 1000)}s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // ── Parallel fetch with concurrency limit ───────────────────────────
 
 async function parallelEach(items, limit, fn) {
