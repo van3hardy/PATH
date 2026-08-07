@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "path.recruiter.request.v1",
+  "runId": "run-cli-fixture-001",
+  "createdAt": "2026-07-29T12:00:00.000Z",
+  "objective": "draft_first_touch",
+  "action": {
+    "type": "send_email",
+    "channel": "email",
+    "touch": "first"
+  },
+  "recipient": {
+    "name": "Hiring Manager",
+    "address": "hm@example.test"
+  },
+  "opportunity": {
+    "company": "Synthetic Company",
+    "role": "Synthetic AI Engineer"
+  },
+  "promptVersion": "path-recruiter-v1",
+  "voiceProfile": "path-recruiter-persistent-respectful-v1",
+  "disclosurePolicy": "always-disclose-ai-assistance-v1",
+  "provider": "fake",
+  "requestApproval": {
+    "principal": "Van",
+    "approvedAt": "2026-07-29T11:30:00.000Z",
+    "scope": "THIS_REQUEST_ONLY"
+  },
+  "evidenceRefs": [
+    {
+      "id": "fact-agent-workflows",
+      "factKey": "capability.agent-workflows",
+      "source": "cv.md",
+      "sourceType": "USER_LAYER_FACT",
+      "expectedSourceSha256": "510fd1ffba07d5569457512c69936d6062662ad4945d6d1564fe8e19108b3a2e",
+      "quote": "Van builds agent workflows on Windows 11 with PowerShell.",
+      "authority": "OWNER_APPROVED_FACT",
+      "approvedBy": "Van",
+      "approvedAt": "2026-07-29T11:00:00.000Z",
+      "factRecordedAt": "2026-07-29T10:00:00.000Z",
+      "freshness": {
+        "mode": "STATIC"
+      },
+      "supersedesFactIds": []
+    }
+  ]
+}

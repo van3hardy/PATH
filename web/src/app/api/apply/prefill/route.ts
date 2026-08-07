@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot, readMemory } from "@/lib/career-ops";
 import { getSession } from "@/lib/apply/session";
+import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,6 +125,12 @@ export async function POST(req: Request) {
       if (!resolved) return fail(`CLI '${cliId}' not found on this machine`);
       const { spec, binPath } = resolved;
 
+      const modelMetadata = { adapter: cliId, locality: "local" };
+      const modelResources = [{ type: "model" as const, id: "prefill" }];
+      const modelAuth = await authorizeDirectUiGesture("model.invoke", modelMetadata, modelResources);
+      if (modelAuth.decision === "DENY") { fail("capability denied"); return; }
+      if (modelAuth.decision !== "ALLOW") { fail(`approval required: ${modelAuth.code}`); return; }
+
       const fieldsList = s.fields
         .map((f) => `${f.id}\t${f.type}${f.required ? "*" : ""}\t${f.label}${f.options ? `\t[options: ${f.options.join(" | ")}]` : ""}`)
         .join("\n");
@@ -213,6 +220,7 @@ Output ONLY a compact JSON object mapping each field id → {"value": "...", "ne
       const count = Object.keys(obj).length;
       log(`Parsed ${count} answers${truncated ? " (RECOVERED from truncated output — some fields may be missing)" : ""}`);
       emit({ t: "done", answers: obj, truncated, count });
+      try { await recordTerminalReceipt("model.invoke", "direct_user", modelMetadata, modelResources, modelAuth.approval, "succeeded"); } catch { /* best-effort */ }
       controller.close();
     },
   });
