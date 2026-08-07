@@ -1,6 +1,8 @@
 import { getSession, finalizeDrivenSession, extractCurrent, isApplicationFormFn, handoffSession } from "@/lib/apply/session";
 import { driveSession } from "@/lib/apply/drive";
 import { classifyEmpty } from "@/lib/apply/diagnose";
+import { authorizeDirectUiGesture, recordTerminalReceipt, type CapabilityOutcome } from "@/lib/server/capability-gateway";
+import { sha256Hex } from "@/lib/server/sha256";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +19,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "bad json" }, { status: 400 });
   }
   const { sessionId, cliId = "", goal = "reach", answers } = body;
-  const s = sessionId ? getSession(sessionId) : undefined;
+  if (!sessionId) return Response.json({ error: "sessionId required" }, { status: 400 });
+  const s = getSession(sessionId);
   if (!s) return Response.json({ error: "apply session not found (it may have expired)" }, { status: 404 });
+
+  const hostname = s.url ? new URL(s.url).hostname : "unknown";
+  const metadata = { hostname, sessionIdHash: sha256Hex(sessionId), fieldCount: 0 };
+  const resources = [{ type: "external" as const, id: "application-form", destination: hostname }];
+  const auth = await authorizeDirectUiGesture("browser.fill", metadata, resources);
+  if (auth.decision === "DENY") return Response.json({ error: "capability denied", code: auth.code }, { status: 403 });
+  if (auth.decision !== "ALLOW") return Response.json({ error: "approval required", code: auth.code, scopeHash: auth.scopeHash }, { status: 409 });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -30,6 +40,7 @@ export async function POST(req: Request) {
           /* client gone */
         }
       };
+      let outcome: CapabilityOutcome = "succeeded";
       try {
         const page = s.page;
         const isFormReady = async () => {
@@ -63,8 +74,14 @@ export async function POST(req: Request) {
         const why = await classifyEmpty(page, s.url).catch(() => ({ message: "Couldn't reach a fillable form on this page." }));
         emit({ t: "error", reason: result.reason, message: result.reason === "stuck" ? result.steps.at(-1)?.detail || why.message : why.message });
       } catch (e) {
+        outcome = "failed";
         emit({ t: "error", message: e instanceof Error ? e.message.slice(0, 160) : "drive failed" });
       } finally {
+        try {
+          if (auth.decision === "ALLOW") {
+            await recordTerminalReceipt("browser.fill", "direct_user", metadata, resources, auth.approval, outcome);
+          }
+        } catch { /* receipt best-effort */ }
         controller.close();
       }
     },

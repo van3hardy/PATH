@@ -1,7 +1,7 @@
 {
-  "name": "career-ops",
+  "name": "path",
   "version": "1.22.0",
-  "description": "AI-powered job search pipeline — works with any AI coding CLI (Claude Code, Codex, OpenCode, Antigravity, Grok, Qwen, Kimi, Copilot)",
+  "description": "Path - Van's local approval-gated recruiter and job-search agent",
   "private": true,
   "scripts": {
     "doctor": "node doctor.mjs",
@@ -51,7 +51,13 @@
     "build:dashboard": "node build-dashboard.mjs",
     "serve:dashboard": "cd dashboard && go run . --path ..",
     "postinstall": "npx playwright install chromium --with-deps || npx playwright install chromium --with-deps",
-    "manifesto": "node manifesto.mjs"
+    "manifesto": "node manifesto.mjs",
+    "test:path-safety": "node --test tests/path-safety/*.test.mjs",
+    "test:path-agent": "node --test tests/path-brain/*.test.mjs tests/path-runner/*.test.mjs tests/path-memory/*.test.mjs tests/path-workflows/recruiter/*.test.mjs tests/path-cli/*.test.mjs",
+    "path:run": "node scripts/path-run.mjs",
+    "path:queue": "node scripts/path-queue.mjs",
+    "path:approve": "node scripts/path-approve.mjs",
+    "path:dispatch": "node scripts/path-dispatch.mjs"
   },
   "keywords": [
     "ai",

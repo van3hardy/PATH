@@ -100,6 +100,19 @@ directly. Containment is the same as everywhere else in open source:
 - **`plugins.local/`** runs with **your** trust — you installed it. Treat a
   third-party plugin like any code you run on your machine.
 
+### Capability gateway enforcement
+
+Every plugin run executes **exactly the selected plugin ID and hook**
+(`node plugins.mjs run <id> ...`), bound in the capability catalog
+(`path-safety/capability-catalog.mjs`) as `plugin.<id>.<hook>`. Producer hooks
+(`provider`/`ingest`/`search`) are `external_read`; `notify`/`export` are
+`external_write`. Provider fetches are wrapped in `executeCapability` with
+configuration-bound direct-user approval, and every invocation emits a
+content-minimized, hash-chained receipt (metadata/resources hashed — never your
+keys, payloads, or data). `browser.submit` and every unknown capability are denied.
+The gateway is an application-level boundary, not a sandbox — see the trust model
+above.
+
 ## Not a plugin
 
 These don't belong in the plugin layer — they're a different direction:

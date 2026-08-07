@@ -1,5 +1,6 @@
 # Personal data (user fills these)
 cv.md
+article-digest.md
 data/applications.md
 data/applications.db
 data/follow-ups.md
@@ -117,5 +118,29 @@ package-lock.json
 # Planning (local scratchpad)
 plan/
 
+# Path — runtime state, audit ledger, and run artifacts (personal, never commit)
+data/path-audit.jsonl
+data/path-outbox.jsonl
+data/path-approvals.jsonl
+data/path-runs/
+
+# Disciplined Work — generated per-machine state
+.disciplined-work/
+
+# Codex CLI hooks — machine-specific configuration
+.codex/
+
 # Web
 .career-ops-web/logo-cache/
+
+# Path — user layer catchall: data/ is personal (AGENTS.md User Layer).
+# Listed after the specific data/ rules so nothing under data/ is committable
+# except the tracked .gitkeep scaffolds.
+data/*
+!data/.gitkeep
+!data/offers/
+!data/offers/.gitkeep
+!data/parser-output/
+!data/parser-output/.gitkeep
+!data/parser-output/**/
+!data/parser-output/**/.gitkeep

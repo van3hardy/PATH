@@ -1,3 +1,5 @@
+> Path note: this repository is Van's local approval-gated recruiter and job-search agent, bootstrapped from `santifer/career-ops` at the audited commit recorded in `docs/path/repo-sources.md`. Path preserves a human-approval model for all outbound communication.
+
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/wordmark-dark.svg"><img src="docs/wordmark-light.svg" alt="career-ops" width="250" height="56"></picture></p>
 
 <div align="center">

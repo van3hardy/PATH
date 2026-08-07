@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot, readMemory, doctorState } from "@/lib/career-ops";
+import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
+import { sha256Hex } from "@/lib/server/sha256";
 
 export const runtime = "nodejs"; // child_process (spawn) requires the Node runtime
 export const dynamic = "force-dynamic";
@@ -64,6 +66,12 @@ export async function POST(req: Request) {
     });
   }
   const { spec, binPath } = resolved;
+
+  const modelMetadata = { adapter: cliId, locality: "local" };
+  const modelResources = [{ type: "model" as const, id: "assistant" }];
+  const modelAuth = await authorizeDirectUiGesture("model.invoke", modelMetadata, modelResources);
+  if (modelAuth.decision === "DENY") return new Response(JSON.stringify({ error: "capability denied" }), { status: 403, headers: { "Content-Type": "application/json" } });
+  if (modelAuth.decision !== "ALLOW") return new Response(JSON.stringify({ error: "approval required", scopeHash: modelAuth.scopeHash }), { status: 409, headers: { "Content-Type": "application/json" } });
 
   const history = (body.history ?? []).slice(-8);
   const convo = history.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
@@ -187,10 +195,13 @@ export async function POST(req: Request) {
         safeEnqueue(`\n[error launching ${spec.name}: ${e.message}]`);
         safeClose();
       });
-      child.on("close", () => {
+      child.on("close", async () => {
         if (!emitted) {
           safeEnqueue("_(no output — is the CLI authenticated?)_");
         }
+        try {
+          await recordTerminalReceipt("model.invoke", "direct_user", modelMetadata, modelResources, modelAuth.approval, emitted ? "succeeded" : "failed");
+        } catch { /* receipt best-effort */ }
         safeClose();
       });
     },

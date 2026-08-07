@@ -48,6 +48,11 @@ them. Reach the network **only** through `ctx.fetch` (your manifest
 `allowedHosts` is enforced, with SSRF protection). Keys arrive via `ctx.env`,
 non-secret settings via `ctx.settings`.
 
+Plugin runs are gateway-enforced: only the selected plugin ID + hook executes
+(`plugin.<id>.<hook>` in `path-safety/capability-catalog.mjs`), and every
+invocation emits a content-minimized, hash-chained receipt. `browser.submit`
+and every unknown capability are denied in the catalog.
+
 See `plugins/README.md` for the full contract + the honest trust model (plain
 ESM has no hard sandbox — bundled plugins are code-reviewed; your own are your
 trust).
