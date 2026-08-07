@@ -23,9 +23,10 @@ import yaml from 'js-yaml';
 
 import {
   discoverPlugins, pluginRoots, loadPluginConfig, pluginStatus,
-  runHook, loadDotenvOnce, HOOK_KINDS, loadSkill, resolveSuccessorIds,
+  runAllHooks, runHook, loadDotenvOnce, HOOK_KINDS, loadSkill, resolveSuccessorIds,
 } from './plugins/_engine.mjs';
 import { loadRegistry, findInRegistry, classifySource, sourceBadge, successorFor } from './plugins/_registry.mjs';
+import { createJsonlReceiptSink } from './path-safety/capability-receipts.mjs';
 import { readLock, writeLockEntry, removeLockEntry, hashPluginTree, consentSurface } from './plugins/_lock.mjs';
 import { installFromRepo, scaffoldNew, parseRepoArg } from './plugin-install.mjs';
 import { appendToPipeline } from './scan.mjs';
@@ -151,35 +152,52 @@ async function cmdRun(args) {
 
   await loadDotenvOnce();
 
+  const approval = { source: 'direct_cli', approvedBy: 'plugins.mjs CLI' };
+  const receiptPath = path.join(ROOT, 'data', 'plugin-capability-receipts.jsonl');
+  const receiptSink = createJsonlReceiptSink(receiptPath);
+
   if (hook === 'ingest' || hook === 'search') {
     const payload = hook === 'search' ? positional.slice(hookArgStart).join(' ') : undefined;
     if (hook === 'search' && !payload) { console.error(`search needs a query: node plugins.mjs run ${id} search "<query>"`); process.exit(1); }
-    const results = await runHook(hook, payload, { root: ROOT, dryRun });
-    const found = results.filter(r => r.ok && Array.isArray(r.result)).flatMap(r => r.result).map(sanitizeJob).filter(Boolean);
-    // Additive de-dup: never re-add a URL already in the pipeline.
-    const known = existingPipelineUrls();
-    const seen = new Set();
-    const jobs = found.filter(j => !known.has(j.url) && !seen.has(j.url) && seen.add(j.url));
-    console.log(`${id} ${hook}: ${found.length} found, ${jobs.length} new.`);
-    if (dryRun) { jobs.slice(0, 20).forEach(j => console.log(`  • ${j.title} — ${j.url}`)); console.log('(--dry-run: pipeline not written)'); return; }
-    if (jobs.length) { appendToPipeline(jobs); console.log(`→ Appended ${jobs.length} to data/pipeline.md. Run /career-ops pipeline to evaluate.`); }
+    const result = await runHook(id, hook, payload, { root: ROOT, dryRun, approval, receiptSink });
+    if (!result.ok && result.code !== 'PLUGIN_DRY_RUN') {
+      console.error(`${id} ${hook}: ${result.error || result.code}`);
+      process.exit(1);
+    }
+    if (result.ok && Array.isArray(result.result)) {
+      const found = result.result.map(sanitizeJob).filter(Boolean);
+      // Additive de-dup: never re-add a URL already in the pipeline.
+      const known = existingPipelineUrls();
+      const seen = new Set();
+      const jobs = found.filter(j => !known.has(j.url) && !seen.has(j.url) && seen.add(j.url));
+      console.log(`${id} ${hook}: ${found.length} found, ${jobs.length} new.`);
+      if (dryRun) { jobs.slice(0, 20).forEach(j => console.log(`  • ${j.title} — ${j.url}`)); console.log('(--dry-run: pipeline not written)'); return; }
+      if (jobs.length) { appendToPipeline(jobs); console.log(`→ Appended ${jobs.length} to data/pipeline.md. Run /career-ops pipeline to evaluate.`); }
+    }
     return;
   }
 
   if (hook === 'export') {
     const snapshot = buildSnapshot();
-    const results = await runHook('export', snapshot, { root: ROOT, dryRun });
-    for (const r of results) {
-      if (r.ok) console.log(`${r.id} export: pushed ${r.result?.pushed ?? 0} record(s).`);
-      else console.log(`${r.id} export: failed — ${r.error}`);
+    const result = await runHook(id, hook, snapshot, { root: ROOT, dryRun, approval, receiptSink });
+    if (!result.ok && result.code !== 'PLUGIN_DRY_RUN') {
+      console.error(`${id} export: failed — ${result.error || result.code}`);
+      process.exit(1);
+    }
+    if (result.ok && result.result?.pushed !== undefined) {
+      console.log(`${id} export: pushed ${result.result.pushed} record(s).`);
     }
     return;
   }
 
   if (hook === 'notify') {
     const message = positional.slice(hookArgStart).join(' ') || '(career-ops notification)';
-    const results = await runHook('notify', { message }, { root: ROOT, dryRun });
-    for (const r of results) console.log(r.ok ? `${r.id} notify: sent.` : `${r.id} notify: failed — ${r.error}`);
+    const result = await runHook(id, hook, { message }, { root: ROOT, dryRun, approval, receiptSink });
+    if (!result.ok && result.code !== 'PLUGIN_DRY_RUN') {
+      console.error(`${id} notify: failed — ${result.error || result.code}`);
+      process.exit(1);
+    }
+    if (result.ok) console.log(`${id} notify: sent.`);
     return;
   }
 }

@@ -1,0 +1,13 @@
+version: 1
+principal: Van
+facts:
+  - id: van-agent-workflows-windows-powershell
+    text: Van builds agent workflows on Windows 11 with PowerShell.
+    source: user-provided Path requirements
+    source_date: 2026-07-23
+    approved: true
+  - id: van-tool-stack
+    text: Van uses GitHub, Gmail/Drive, Edge, gstack skills repo, n8n, Git, codebase-memory-mcp, PowerShell, MSYS2, and Task Scheduler.
+    source: user-provided Path requirements
+    source_date: 2026-07-23
+    approved: true

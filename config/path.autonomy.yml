@@ -1,0 +1,41 @@
+green:
+  - discover_roles
+  - enrich_contacts
+  - score_fit
+  - tailor_resume
+  - draft_message
+  - track_status
+  - queue_approval_packet
+
+yellow:
+  - send_email
+  - send_linkedin
+  - send_reply
+  - submit_application
+  - send_followup
+
+red_patterns:
+  salary_or_compensation:
+    - salary
+    - compensation
+    - base salary
+    - hourly rate
+    - total comp
+    - "$"
+  offer_decision:
+    - accept the offer
+    - decline the offer
+    - counteroffer
+    - counter offer
+  legal_statement:
+    - legally binding
+    - legal claim
+    - certify under penalty
+  availability_promise:
+    - I can start
+    - I am available
+    - guaranteed availability
+  binding_commitment:
+    - I accept
+    - I agree to
+    - I commit
