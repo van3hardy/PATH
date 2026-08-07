@@ -173,7 +173,12 @@ const scripts = [
   { name: 'agent-inbox-tests.mjs', expectExit: 0 },
   { name: 'followup-seed-tests.mjs', expectExit: 0 },
   { name: 'paste-reply-tests.mjs', expectExit: 0 },
-  { name: 'set-status-tests.mjs', expectExit: 0 },
+  // set-status-tests.mjs provisions a fresh sandbox per section and spawns
+  // ~40 set-status.mjs child processes; on Windows process spawn is slow
+  // enough that the suite needs ~30-34s, so it gets a larger per-entry
+  // timeout than the run() helper's 30s default (same pattern as the
+  // dashboard build below).
+  { name: 'set-status-tests.mjs', expectExit: 0, timeout: 120000 },
   { name: 'tracker-writer-lock-tests.mjs', expectExit: 0 },
   // Root-level standalone suites shipped in SYSTEM_PATHS but previously never
   // executed by CI (issue #1624). All are fast (<0.5s each), so they run in
@@ -195,8 +200,11 @@ const scripts = [
   { name: 'archive-posting.mjs --help', expectExit: 0 },
 ];
 
-for (const { name, allowFail } of scripts) {
-  const result = run(NODE, name.split(' '), { stdio: ['pipe', 'pipe', 'pipe'] });
+for (const { name, allowFail, timeout } of scripts) {
+  const result = run(NODE, name.split(' '), {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    ...(timeout ? { timeout } : {}),
+  });
   if (result !== null) {
     pass(`${name} runs OK`);
   } else if (allowFail) {
