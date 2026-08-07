@@ -179,10 +179,12 @@ export function run(cmd, args = [], opts = {}) {
   lastFailure = null;
   const exe = resolveAllowedExecutable(cmd);
   try {
-    // codeql[js/command-line-injection] -- execFileSync never invokes a shell, and
-    // resolveAllowedExecutable maps cmd onto a fixed allowlist of trusted literals,
-    // so neither exe nor args is attacker-controlled. Safe by construction; this is
-    // the "uncontrolled command line" finding closed above (alerts #36/#41/#42).
+    // execFileSync never invokes a shell, and resolveAllowedExecutable maps cmd
+    // onto a fixed allowlist of trusted literals, so neither exe nor args is
+    // attacker-controlled. CodeQL would flag this line as "uncontrolled command
+    // line" (js/command-line-injection), but this repo's scan does not honor
+    // source suppression comments, so the harness is excluded from the security
+    // analysis via .github/codeql/codeql-config.yml.
     return execFileSync(exe, args, { cwd: ROOT, encoding: 'utf-8', timeout: 30000, ...opts }).trim();
   } catch (e) {
     // execFileSync attaches the child's streams and exit status to the error.
