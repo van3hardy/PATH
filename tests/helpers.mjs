@@ -179,6 +179,10 @@ export function run(cmd, args = [], opts = {}) {
   lastFailure = null;
   const exe = resolveAllowedExecutable(cmd);
   try {
+    // codeql[js/command-line-injection] -- execFileSync never invokes a shell, and
+    // resolveAllowedExecutable maps cmd onto a fixed allowlist of trusted literals,
+    // so neither exe nor args is attacker-controlled. Safe by construction; this is
+    // the "uncontrolled command line" finding closed above (alerts #36/#41/#42).
     return execFileSync(exe, args, { cwd: ROOT, encoding: 'utf-8', timeout: 30000, ...opts }).trim();
   } catch (e) {
     // execFileSync attaches the child's streams and exit status to the error.
