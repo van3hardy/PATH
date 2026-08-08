@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { verifyAuditLedger } from '../path-safety/audit-ledger.mjs';
 import { verifyPacketIntegrity } from '../path-safety/packet-integrity.mjs';
@@ -75,23 +77,105 @@ function parseJsonl(filePath) {
   return entries;
 }
 
-function printResult(status, packet = {}) {
-  console.log(JSON.stringify({
-    mode: 'dry-run',
-    status,
-    packetId: packet?.id ?? null,
-    tier: packet?.tier ?? null
-  }, null, 2));
-  return status === 'READY_TO_DISPATCH' ? 0 : 1;
+const USAGE = 'Usage: node scripts/path-dispatch.mjs <packet.json> <approvals.jsonl> <dispatch.jsonl> <audit.jsonl> --dry-run|--send';
+
+function codedError(code, cause) {
+  return Object.assign(new Error(code, cause ? { cause } : undefined), { code });
 }
 
-function main(args) {
+// Idempotent lazy dotenv load; mirrors plugins/_engine.mjs. Credentials only
+// matter on the real (non-fake) send path, so this may stay a no-op in absensce.
+let dotenvLoaded = false;
+async function loadDotenvOnce() {
+  if (dotenvLoaded) return;
+  dotenvLoaded = true;
+  try {
+    const { config } = await import('dotenv');
+    config();
+  } catch {
+    // dotenv optional — fall back to ambient process.env.
+  }
+}
+
+// Subprocess seam: PATH_SEND_TRANSPORT=fake routes to an in-script fake so
+// integration tests exercise the full gate/send/ledger host without OAuth.
+// PATH_SEND_FAKE_FAIL=1 forces a failure for the failure test.
+async function resolveSendTransport() {
+  if (process.env.PATH_SEND_TRANSPORT === 'fake') {
+    return {
+      async sendGmailMessage() {
+        if (process.env.PATH_SEND_FAKE_FAIL === '1') throw codedError('SEND_FAILED_API');
+        return { ok: true, messageId: `fake-${crypto.randomUUID()}` };
+      }
+    };
+  }
+  await loadDotenvOnce();
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) throw codedError('SEND_FAILED_CONFIG');
+  const { sendGmailMessage } = await import('../transports/gmail-send.mjs');
+  return {
+    sendGmailMessage: (args) => sendGmailMessage({ ...args, clientId, clientSecret, refreshToken })
+  };
+}
+
+// Missing dispatch file is an empty ledger on the send path (lazy append-only);
+// a malformed existing file still fails loudly via parseJsonl.
+function readDispatches(dispatchPath) {
+  if (!fs.existsSync(dispatchPath)) return [];
+  return parseJsonl(dispatchPath);
+}
+
+// Sends and appends the receipt only after the transport confirms a messageId.
+// Runs after evaluateDryRun() returned READY_TO_DISPATCH, so the send is
+// twice-gated: same gate in the same run that performs the send.
+async function performSend({ packet, dispatchPath }) {
+  let transport;
+  try {
+    transport = await resolveSendTransport();
+  } catch (error) {
+    return { status: error?.code || 'SEND_FAILED_HTTP' };
+  }
+  const subject = `${packet.action.opportunity.role} @ ${packet.action.opportunity.company}`;
+  const to = { name: packet.recipient.name, address: packet.recipient.address };
+  try {
+    const result = await transport.sendGmailMessage({ to, subject, body: packet.finalText });
+    if (!result?.ok) throw codedError('SEND_FAILED_API');
+    const record = {
+      packetId: packet.id,
+      event: 'dispatch_completed',
+      timestamp: new Date().toISOString(),
+      messageId: result.messageId,
+      providerId: 'gmail'
+    };
+    fs.mkdirSync(path.dirname(dispatchPath), { recursive: true });
+    fs.appendFileSync(dispatchPath, `${JSON.stringify(record)}\n`, 'utf8');
+    return { status: 'DISPATCHED', messageId: result.messageId };
+  } catch (error) {
+    return { status: error?.code || 'SEND_FAILED_HTTP' };
+  }
+}
+
+function printResult(status, packet = {}, { mode = 'dry-run', extras = {} } = {}) {
+  console.log(JSON.stringify({
+    mode,
+    status,
+    packetId: packet?.id ?? null,
+    tier: packet?.tier ?? null,
+    ...extras
+  }, null, 2));
+  return status === 'READY_TO_DISPATCH' || status === 'DISPATCHED' ? 0 : 1;
+}
+
+async function main(args) {
   const [packetPath, approvalsPath, dispatchPath, auditPath, ...flags] = args;
   if (!packetPath || !approvalsPath || !dispatchPath || !auditPath ||
-      flags.length !== 1 || flags[0] !== '--dry-run') {
-    console.error('Usage: node scripts/path-dispatch.mjs <packet.json> <approvals.jsonl> <dispatch.jsonl> <audit.jsonl> --dry-run');
+      flags.length !== 1 || !['--dry-run', '--send'].includes(flags[0])) {
+    console.error(USAGE);
     return 2;
   }
+  const isSend = flags[0] === '--send';
 
   let packet;
   try {
@@ -109,14 +193,25 @@ function main(args) {
 
   let dispatches;
   try {
-    dispatches = parseJsonl(dispatchPath);
+    dispatches = isSend ? readDispatches(dispatchPath) : parseJsonl(dispatchPath);
   } catch {
     return printResult('BLOCKED_INVALID_DISPATCHES', packet);
   }
 
-  return printResult(evaluateDryRun({ packet, approvals, dispatches, auditPath }).status, packet);
+  const gate = evaluateDryRun({ packet, approvals, dispatches, auditPath });
+  if (isSend) {
+    if (gate.status !== 'READY_TO_DISPATCH') {
+      return printResult(gate.status, packet, { mode: 'send' });
+    }
+    const outcome = await performSend({ packet, dispatchPath });
+    return printResult(outcome.status, packet, {
+      mode: 'send',
+      extras: outcome.messageId ? { messageId: outcome.messageId } : {}
+    });
+  }
+  return printResult(gate.status, packet);
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  process.exit(main(process.argv.slice(2)));
+  main(process.argv.slice(2)).then((code) => process.exit(code));
 }
