@@ -86,7 +86,8 @@ function runSendCli(packet, {
   decision = 'APPROVED',
   dispatches = [],
   env = {},
-  extraFlags = []
+  extraFlags = [],
+  contactsPath = null
 } = {}) {
   const dir = tempDir();
   const packetPath = path.join(dir, 'packet.json');
@@ -98,10 +99,30 @@ function runSendCli(packet, {
   // Audit ledger is always APPROVED (mirrors dispatch.test.mjs runCli: the
   // approvals file carries the decision; BLOCKED_REJECTED comes from it).
   const auditPath = writeAuditLedger(dir, [auditRecordFor(packet)]);
+  const flags = ['--send', ...extraFlags];
+  if (contactsPath) flags.push('--contacts', contactsPath);
   const result = spawnSync(process.execPath,
-    [scriptPath, packetPath, approvalsPath, dispatchPath, auditPath, '--send', ...extraFlags],
+    [scriptPath, packetPath, approvalsPath, dispatchPath, auditPath, ...flags],
     { encoding: 'utf8', env: { ...process.env, PATH_SEND_TRANSPORT: 'fake', ...env } });
   return { dir, result, dispatchPath };
+}
+
+function makeContactsLedger(dir, records) {
+  const contactsPath = path.join(dir, 'contacts.jsonl');
+  fs.writeFileSync(contactsPath, records.map((r) => JSON.stringify(r)).join('\n') +
+    (records.length ? '\n' : ''), 'utf8');
+  return contactsPath;
+}
+
+function priorContactRecord(email = 'hm@example.com') {
+  return {
+    contactId: 'c-0123456789abcdef',
+    name: 'Hiring Manager',
+    email,
+    channels: [{ channel: 'email', address: email, firstSeenAt: '2026-07-29T21:30:00.000Z' }],
+    history: [{ event: 'contacted', at: '2026-07-29T21:30:00.000Z', channel: 'email', applicationId: 12, source: 'backfill' }],
+    lastContactedAt: '2026-07-29T21:30:00.000Z'
+  };
 }
 
 test('--send dispatches an approved packet and appends dispatch_completed', () => {
@@ -158,4 +179,71 @@ test('--send requires exactly one recognized flag', () => {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /--send/);
   assert.match(result.stderr, /--dry-run/);
+});
+
+test('--contacts blocks re-outreach to an already-contacted address', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [priorContactRecord()]);
+  const packet = makePacket();
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8'), '');
+});
+
+test('--contacts blocks an already-contacted address in dry-run too', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [priorContactRecord()]);
+  const packet = makePacket();
+  const packetPath = path.join(dir, 'packet.json');
+  fs.writeFileSync(packetPath, JSON.stringify(packet), 'utf8');
+  const approvalsPath = path.join(dir, 'approvals.jsonl');
+  fs.writeFileSync(approvalsPath, `${JSON.stringify(approvalFor(packet))}\n`, 'utf8');
+  const dispatchPath = path.join(dir, 'dispatch.jsonl');
+  fs.writeFileSync(dispatchPath, '', 'utf8');
+  const auditPath = writeAuditLedger(dir, [auditRecordFor(packet)]);
+  const result = spawnSync(process.execPath,
+    [scriptPath, packetPath, approvalsPath, dispatchPath, auditPath, '--dry-run', '--contacts', contactsPath],
+    { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+});
+
+test('--send with --contacts writes the dispatched contact into the ledger', () => {
+  const dir = tempDir();
+  const packet = makePacket();
+  const contactsPath = path.join(dir, 'contacts.jsonl');
+  const { result } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 0, result.stdout);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  const lines = fs.readFileSync(contactsPath, 'utf8').split(/\r?\n/).filter(Boolean);
+  assert.equal(lines.length, 1);
+  const record = JSON.parse(lines[0]);
+  assert.equal(record.email, packet.recipient.address);
+  assert.equal(record.channels[0].address, packet.recipient.address);
+  assert.equal(record.history[0].source, 'dispatch');
+  assert.equal(record.history[0].event, 'contacted');
+});
+
+test('--contacts blocks a second dispatch to the same person even under a new packet id', () => {
+  const dir = tempDir();
+  const p1 = makePacket();
+  const contactsPath = path.join(dir, 'contacts.jsonl');
+  const first = runSendCli(p1, { contactsPath });
+  assert.equal(first.result.status, 0);
+  const p2 = makePacket({ finalText: 'Follow-up outreach.' });
+  const second = runSendCli(p2, { contactsPath });
+  assert.equal(second.result.status, 1);
+  assert.equal(JSON.parse(second.result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+});
+
+test('a corrupt contacts ledger blocks as BLOCKED_INVALID_CONTACTS', () => {
+  const dir = tempDir();
+  const contactsPath = path.join(dir, 'contacts.jsonl');
+  fs.writeFileSync(contactsPath, '{not json}\n', 'utf8');
+  const packet = makePacket();
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_INVALID_CONTACTS');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8'), '');
 });

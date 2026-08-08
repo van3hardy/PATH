@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { verifyAuditLedger } from '../path-safety/audit-ledger.mjs';
+import { loadContacts, isAlreadyContacted, upsertContact } from '../path-safety/contacts.mjs';
 import { verifyPacketIntegrity } from '../path-safety/packet-integrity.mjs';
 
-export function evaluateDryRun({ packet, approvals, dispatches, auditPath, now = new Date() }) {
+export function evaluateDryRun({ packet, approvals, dispatches, auditPath, contacts, now = new Date() }) {
   if (!packet || typeof packet !== 'object' ||
       !packet.id || !packet.createdAt || !packet.action || !packet.recipient ||
       typeof packet.finalText !== 'string') {
@@ -23,6 +24,11 @@ export function evaluateDryRun({ packet, approvals, dispatches, auditPath, now =
   if (dispatches.some((entry) =>
     entry.packetId === packet.id && entry.event === 'dispatch_completed')) {
     return { status: 'BLOCKED_ALREADY_DISPATCHED' };
+  }
+
+  if (contacts instanceof Map && contacts.size > 0 &&
+      isAlreadyContacted(contacts, packet.recipient.address)) {
+    return { status: 'BLOCKED_ALREADY_CONTACTED' };
   }
 
   const exactApprovals = approvals.filter((entry) =>
@@ -77,7 +83,7 @@ function parseJsonl(filePath) {
   return entries;
 }
 
-const USAGE = 'Usage: node scripts/path-dispatch.mjs <packet.json> <approvals.jsonl> <dispatch.jsonl> <audit.jsonl> --dry-run|--send';
+const USAGE = 'Usage: node scripts/path-dispatch.mjs <packet.json> <approvals.jsonl> <dispatch.jsonl> <audit.jsonl> --dry-run|--send [--contacts <contacts.jsonl>]';
 
 function codedError(code, cause) {
   return Object.assign(new Error(code, cause ? { cause } : undefined), { code });
@@ -130,7 +136,7 @@ function readDispatches(dispatchPath) {
 // Sends and appends the receipt only after the transport confirms a messageId.
 // Runs after evaluateDryRun() returned READY_TO_DISPATCH, so the send is
 // twice-gated: same gate in the same run that performs the send.
-async function performSend({ packet, dispatchPath }) {
+async function performSend({ packet, dispatchPath, contactsPath }) {
   let transport;
   try {
     transport = await resolveSendTransport();
@@ -139,19 +145,40 @@ async function performSend({ packet, dispatchPath }) {
   }
   const subject = `${packet.action.opportunity.role} @ ${packet.action.opportunity.company}`;
   const to = { name: packet.recipient.name, address: packet.recipient.address };
+  let timestamp;
   try {
     const result = await transport.sendGmailMessage({ to, subject, body: packet.finalText });
     if (!result?.ok) throw codedError('SEND_FAILED_API');
+    timestamp = new Date().toISOString();
     const record = {
       packetId: packet.id,
       event: 'dispatch_completed',
-      timestamp: new Date().toISOString(),
+      timestamp,
       messageId: result.messageId,
       providerId: 'gmail'
     };
     fs.mkdirSync(path.dirname(dispatchPath), { recursive: true });
     fs.appendFileSync(dispatchPath, `${JSON.stringify(record)}\n`, 'utf8');
-    return { status: 'DISPATCHED', messageId: result.messageId };
+    let contactWriteError;
+    if (contactsPath) {
+      try {
+        upsertContact(contactsPath, {
+          name: packet.recipient.name,
+          email: packet.recipient.address,
+          channel: 'email',
+          at: timestamp,
+          applicationId: null,
+          source: 'dispatch'
+        });
+      } catch (error) {
+        contactWriteError = error?.code || 'FAILED_CONTACTS_WRITE';
+      }
+    }
+    return {
+      status: 'DISPATCHED',
+      messageId: result.messageId,
+      ...(contactWriteError ? { contactWriteError } : {})
+    };
   } catch (error) {
     return { status: error?.code || 'SEND_FAILED_HTTP' };
   }
@@ -169,13 +196,22 @@ function printResult(status, packet = {}, { mode = 'dry-run', extras = {} } = {}
 }
 
 async function main(args) {
-  const [packetPath, approvalsPath, dispatchPath, auditPath, ...flags] = args;
+  const [packetPath, approvalsPath, dispatchPath, auditPath, mode, ...flags] = args;
   if (!packetPath || !approvalsPath || !dispatchPath || !auditPath ||
-      flags.length !== 1 || !['--dry-run', '--send'].includes(flags[0])) {
+      !['--dry-run', '--send'].includes(mode)) {
     console.error(USAGE);
     return 2;
   }
-  const isSend = flags[0] === '--send';
+  let contactsPath = null;
+  if (flags.length > 0) {
+    if (flags.length === 2 && flags[0] === '--contacts' && !flags[1].startsWith('--')) {
+      contactsPath = flags[1];
+    } else {
+      console.error(USAGE);
+      return 2;
+    }
+  }
+  const isSend = mode === '--send';
 
   let packet;
   try {
@@ -198,15 +234,28 @@ async function main(args) {
     return printResult('BLOCKED_INVALID_DISPATCHES', packet);
   }
 
-  const gate = evaluateDryRun({ packet, approvals, dispatches, auditPath });
+  let contacts = null;
+  if (contactsPath) {
+    try {
+      // Missing file → empty map (never an error); corrupt line → loadContacts throws.
+      contacts = loadContacts(contactsPath);
+    } catch {
+      return printResult('BLOCKED_INVALID_CONTACTS', packet);
+    }
+  }
+
+  const gate = evaluateDryRun({ packet, approvals, dispatches, auditPath, contacts });
   if (isSend) {
     if (gate.status !== 'READY_TO_DISPATCH') {
       return printResult(gate.status, packet, { mode: 'send' });
     }
-    const outcome = await performSend({ packet, dispatchPath });
+    const outcome = await performSend({ packet, dispatchPath, contactsPath });
     return printResult(outcome.status, packet, {
       mode: 'send',
-      extras: outcome.messageId ? { messageId: outcome.messageId } : {}
+      extras: {
+        ...(outcome.messageId ? { messageId: outcome.messageId } : {}),
+        ...(outcome.contactWriteError ? { contactWriteError: outcome.contactWriteError } : {})
+      }
     });
   }
   return printResult(gate.status, packet);
