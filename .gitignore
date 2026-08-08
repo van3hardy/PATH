@@ -88,6 +88,11 @@ plugins.lock
 .resolved-prompt-*
 node_modules/
 bun.lock
+
+# Desktop shell — build artifacts (web/.gitignore already covers /.*next*)
+desktop/dist/
+desktop/node_modules/
+desktop/out/
 # Report-number reservation sentinels (ephemeral, created by reserve-report-num.mjs)
 reports/*-RESERVED.md
 

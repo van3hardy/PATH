@@ -1,0 +1,43 @@
+{
+  "name": "path-desktop",
+  "version": "1.22.0",
+  "description": "Path desktop shell - an Electron wrapper around the career-ops web UI",
+  "main": "main/index.cjs",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "ai.path.desktop",
+    "productName": "Path",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main/**/*.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
