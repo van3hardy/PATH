@@ -36,7 +36,7 @@ async function resolveRepo() {
   const climbed = nearestCheckout(__dirname);
   if (climbed) return climbed;
 
-  const firstCandidate = checkoutPaths().find(isCheckout);
+  const firstCandidate = checkoutCandidates().find(isCheckout);
   if (firstCandidate) {
     saveRepoRoot(app, firstCandidate);
     return firstCandidate;
