@@ -179,7 +179,7 @@ function readFile(path, label, required = false) {
 // ---------------------------------------------------------------------------
 // Load context files
 // ---------------------------------------------------------------------------
-console.log('\\n📂  Loading context files...');
+console.log('\n📂  Loading context files...');
 
 const sharedContext  = readFile(PATHS.shared, 'modes/_shared.md', false);
 const pdfModeLogic   = readFile(PATHS.pdfMode, 'modes/pdf.md', false);

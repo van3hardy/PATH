@@ -847,7 +847,8 @@ func (m PipelineModel) handleDiscardPicker(msg tea.KeyMsg) (PipelineModel, tea.C
 			m.discardCustomText = ""
 		case "backspace", "ctrl+h":
 			if len(m.discardCustomText) > 0 {
-				m.discardCustomText = m.discardCustomText[:len(m.discardCustomText)-1]
+				runes := []rune(m.discardCustomText)
+				m.discardCustomText = string(runes[:len(runes)-1])
 			}
 		default:
 			if len(msg.Runes) > 0 {
