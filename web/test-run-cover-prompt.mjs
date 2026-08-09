@@ -14,7 +14,7 @@ test("prompt names the real renderer + payload write", () => {
   const p = buildCoverPrompt(ctx);
   assert.match(p, /generate-cover-letter\.mjs --payload/);
   assert.match(p, /\/tmp\/cover-payload-/);
-  assert.match(p, /output\/\{company-slug\}-cover\.pdf/);
+  assert.match(p, /output\/\{company-slug\}-\{role-slug\}-cover\.pdf/);
 });
 
 test("prompt is headless batch — forbids waiting for interactive questions", () => {

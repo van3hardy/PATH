@@ -19,7 +19,6 @@
  * @returns {string}  the headless prompt
  */
 export function buildCoverPrompt({ report, company, role, today }) {
-  const slug = (String(company ?? "").toLowerCase().match(/[a-z0-9]+/g) || []).join("-") || "company";
   const date = String(today || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
   const roleClause = role ? ` for ${company} (${role})` : ` (#${report})`;
   return `You are generating the user's TAILORED cover letter${roleClause}, headless, on their own machine. This is a web-triggered batch job — do NOT stop for interactive questions, research confirmations, or approvals; the user already asked for the letter by clicking a button.
@@ -31,7 +30,7 @@ Run the REAL career-ops cover mode — follow modes/cover.md EXACTLY (structure,
 3. Step 7 achievement selection: pick 4-5 achievement bullets — evidence from cv.md ONLY (exact wording + metrics, never invent). article-digest.md is context only, never a bullet source.
 4. Step 8 draft: write the full letter in the mode's structure (opening, profile intro, achievements bullets, problems section, closing, optional language closing). Respect the word-body target and every language rule in modes/cover.md.
 5. Assemble the JSON payload exactly per Step 9, grounded in this person (name/email/location from config/profile.yml, NOT invented): candidate (name/email/phone/location/linkedin/github/credentials) + letter (role_title, company, city, date ${date}, greeting optional, opening, profile_intro, achievements[{lead,impact}], problems_section, closing, language_closing optional).
-6. Pick the output path as the mode dictates (output/{company-slug}-cover.pdf for this application), write the payload to /tmp/cover-payload-{company-slug}.json, then render:
+6. Pick the output path as the mode dictates (output/{company-slug}-{role-slug}-cover.pdf for this application), write the payload to /tmp/cover-payload-{company-slug}.json, then render:
    node generate-cover-letter.mjs --payload /tmp/cover-payload-{company-slug}.json
    (The script resolves the template itself; do NOT hardcode cover-letter-template.html.)
 7. Do NOT submit anything anywhere. Do NOT send email, no contact, no auto-fill. Draft + render + report path only.
