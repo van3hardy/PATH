@@ -58,7 +58,7 @@ Gmail Inbox (in:inbox newer_than:Nd)
 ## Safety notes
 
 - **No tracker writes.** The scanner imports no `tracker-*` module and never touches `data/applications.md` — the `HUMAN_REVIEW` guarantee is preserved end-to-end.
-- **No global risk gate.** Everything belongs to the read-only Gmail scope (`userinfo.email`, `gmail.readonly`); the only writes are the two data files above, and `--dry-run` touches neither.
+- **Read-only by construction.** The scanner only ever reads the Inbox; the only writes are the two data files above, and `--dry-run` touches neither.
 - **No DMARC gate — by design.** Unlike `plugins/gmail` (which fails closed on DMARC-non-aligned senders), this scanner deliberately accepts everything in the window. Real employer replies often come from domains that aren't DMARC-aligned; rejecting them would silently starve the pipeline. The blocklist, `reply-watch`'s Noise classifier, and the human review prompt are the sorting layer instead.
 - **Idempotent across runs.** Message ids are checked against both `data/reply-candidates.json` and the shared `data/gmail-state.json` cursor, so re-runs append nothing new. A single bad message fetch is skipped and logged, never fatal.
 
