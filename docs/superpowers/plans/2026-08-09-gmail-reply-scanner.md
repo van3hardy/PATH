@@ -57,9 +57,10 @@ test('resolveBlocklist unions inline defaults with cfg blocklist_senders', () =>
   assert.ok(set.has('alerts.example.com'), 'config domain lowercased and merged');
 });
 
-test('isBlocklisted matches domain and bare-address sender', () => {
+test('isBlocklisted matches domain and subdomain-suffixed senders', () => {
   const blocklist = new Set(['alerts.example.com']);
-  assert.equal(isBlocklisted('alerts@example.com', blocklist), true);
+  assert.equal(isBlocklisted('noreply@alerts.example.com', blocklist), true);
+  assert.equal(isBlocklisted('noreply@sub.alerts.example.com', blocklist), true);
   assert.equal(isBlocklisted('recruiter@example.com', blocklist), false);
 });
 
@@ -162,13 +163,21 @@ function normalizeSender(value) {
 
 /**
  * Is the sender (email address or bare domain) on the blocklist?
+ * A sender domain matches a blocklist entry if it is equal to the entry
+ * or is a subdomain of it (same tail-matching convention as
+ * `providers/_trust-validator.mjs:matchesDomainList`, e.g. `mail.alerts.example.com`
+ * matches `alerts.example.com`).
  * @param {string} from
  * @param {Set<string>} blocklist
  * @returns {boolean}
  */
 export function isBlocklisted(from, blocklist) {
   if (!from) return false;
-  return blocklist.has(normalizeSender(from));
+  const domain = normalizeSender(from);
+  for (const entry of blocklist) {
+    if (domain === entry || domain.endsWith('.' + entry)) return true;
+  }
+  return false;
 }
 
 /**
@@ -381,7 +390,7 @@ test('scanReplies appends only unseen, non-blocklisted messages', async () => {
   const blocklist = new Set(['alerts.example.com']);
   const detailPayloads = {
     m1: { id: 'm1', payload: { headers: [{ name: 'From', value: 'r1@example.com' }, { name: 'Subject', value: 'Interview' }], parts: [{ body: { data: Buffer.from('hi').toString('base64url') } }] } },
-    m2: { id: 'm2', payload: { headers: [{ name: 'From', value: 'alerts@example.com' }, { name: 'Subject', value: 'Job alert' }], parts: [] } },
+    m2: { id: 'm2', payload: { headers: [{ name: 'From', value: 'noreply@alerts.example.com' }, { name: 'Subject', value: 'Job alert' }], parts: [] } },
   };
   const fetchFn = async (url) => {
     if (url.includes('/token')) return { ok: true, json: async () => ({ access_token: 't' }) };
