@@ -33,3 +33,12 @@ plugins:
     enabled: false
     # label: "Job Leads"     # the Gmail label to scan
     # days_back: 7           # how far back to look
+
+  # ── gmail-replies (read-only Inbox → reply-watch) ── standalone scanner #1583.
+  # Needs GMAIL_CLIENT_ID + GMAIL_CLIENT_SECRET + GMAIL_REFRESH_TOKEN in .env.
+  # Run via `node gmail-scan-replies.mjs [--days N] [--dry-run]`.
+  # NOT a plugin — this block only carries settings; the script is invoked directly.
+  gmail-replies:
+    enabled: false
+    # days_back: 7            # overrides --days
+    # blocklist_senders: []   # extra job-alert senders to skip (domains or addresses)
