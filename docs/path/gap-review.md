@@ -104,6 +104,6 @@ The `desktop/` Electron shell wraps the same `web/` Next.js app and launches it 
 
 ## 7. Verdict
 
-The repo is the vision's **job-seeker core, fully and maturely built**, plus a **hardened human-in-the-loop recruiter MVP-1** that stops at review. Everything downstream of "prepared draft + approved" (§7 communications, real LinkedIn/call/email, contact graph, PATH Brain, learning loop, deployment) is genuinely **not yet built** — matching §17 of the vision honestly.
+The repo is the vision's **job-seeker core, fully and maturely built**, plus a **hardened human-in-the-loop recruiter MVP-1** that stops at review. Everything downstream of "prepared draft + approved" (§7 communications, real LinkedIn/call/email, contact-graph edges, PATH Brain, learning loop, deployment) is genuinely **not yet built** — matching §17 of the vision honestly.
 
 The gaps are **not empty code**: the machinery (approval packets, outboxes, claim checks, versioned artifacts, tracker, contact ledger) is real and tested. The core missing piece across the remaining vision items is still **transport** — with the people ledger groundwork now in place for the contact graph.
