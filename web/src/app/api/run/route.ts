@@ -5,6 +5,7 @@ import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot, readMemory } from "@/lib/career-ops";
 import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registry";
 import { authorizeDirectUiGesture, recordTerminalReceipt } from "@/lib/server/capability-gateway";
+import { buildCoverPrompt } from "@/lib/run-cover-prompt.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,9 @@ function buildPrompt(kind: string, input: string, memory: string, today: string)
 End with EXACTLY one final line: VERDICT: {0-5 signal strength}/5 — {why it helps their search, ≤12 words}
 
 Target: ${input}`;
+  }
+  if (kind === "cover-letter") {
+    return buildCoverPrompt({ report: input, today });
   }
   if (kind === "pdf") {
     return `You are generating the user's ATS-optimized, TAILORED CV PDF for application #${input}, headless, on their machine. Run the REAL career-ops "pdf" mode — follow modes/pdf.md EXACTLY (do not improvise a format).
@@ -93,7 +97,7 @@ export async function POST(req: Request) {
 
   // These run the REAL core (modes/scripts), not just data — fail clearly if the
   // root is incomplete instead of faking it.
-  const needsScript: Record<string, string> = { evaluate: "modes/oferta.md", "fix-portal": "verify-portals.mjs", pdf: "generate-pdf.mjs" };
+  const needsScript: Record<string, string> = { evaluate: "modes/oferta.md", "fix-portal": "verify-portals.mjs", pdf: "generate-pdf.mjs", "cover-letter": "generate-cover-letter.mjs" };
   const required = needsScript[kind];
   if (required && !fs.existsSync(path.join(careerOpsRoot(), required))) {
     return new Response(
@@ -106,7 +110,8 @@ export async function POST(req: Request) {
 
   // An A–F score is meaningless without a CV to score against — the CLI would
   // hallucinate a fit narrative and still emit a VERDICT. Require cv.md first.
-  if ((kind === "evaluate" || kind === "pdf") && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
+  // cover-letter also tailors against the CV (achievement selection = cv.md only).
+  if ((kind === "evaluate" || kind === "pdf" || kind === "cover-letter") && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
     return new Response(
       JSON.stringify({ error: "Add your CV first so I can score this against you — drop it on the home page." }),
       { status: 400, headers: { "Content-Type": "application/json" } },
@@ -123,7 +128,7 @@ export async function POST(req: Request) {
   // report). 'research' stays read-only. Task (sub-agents) is always blocked
   // (runaway cost). NEVER auto-submits — that is a prompt-level guarantee.
   const tools =
-    kind === "evaluate" || kind === "fix-portal" || kind === "pdf"
+    kind === "evaluate" || kind === "fix-portal" || kind === "pdf" || kind === "cover-letter"
       ? { allowed: "Read,WebFetch,WebSearch,Write,Edit,Bash,Glob,Grep", disallowed: "Task,NotebookEdit" }
       : { allowed: "Read,WebFetch,WebSearch,Glob,Grep", disallowed: "Bash,Write,Edit,NotebookEdit,Task" };
   const args = isClaude
@@ -165,7 +170,8 @@ export async function POST(req: Request) {
       let lastTokens = 0; // per-run token cost from the Claude result event (#6) — local only
       let lastCostUsd: number | null = null;
       // pdf-mode tailors a full CV + renders it — give it more headroom.
-      const killMs = kind === "pdf" ? 720_000 : 285_000;
+      // cover-letter also renders a PDF (generate-cover-letter.mjs) → same budget.
+      const killMs = kind === "pdf" || kind === "cover-letter" ? 720_000 : 285_000;
       killer = setTimeout(() => {
         try { child.kill("SIGTERM"); } catch { /* ignore */ }
       }, killMs);
