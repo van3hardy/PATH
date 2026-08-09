@@ -95,7 +95,7 @@ The `desktop/` Electron shell wraps the same `web/` Next.js app and launches it 
 1. **`modes/discover.md` missing but load-bearing** — required by the mode-integrity gate in `test-all.mjs` (line ~1918) and read at runtime by `web/src/app/api/explore/ai/route.ts` (returns `MODE_MISSING`). `modes/regional/eu-swe.md` **does** exist.
 2. **`interview-prep/story-bank.md` missing** — required by `match-star.mjs`, `modes/_shared.md`, and `path-memory/evidence-selector.mjs`.
 3. **`config/cv-facts.json` missing** (only `.example`) — `verify-cv-facts.mjs` defaults to it.
-4. **Cover letter has no web surface** — core `generate-cover-letter.mjs` exists, but no `/api/run` kind or page in `web/` exposes it.
+4. **Cover letter web surface shipped** — core `generate-cover-letter.mjs` now has a `/api/run` kind (`"cover-letter"`) and an in-app "Cover letter" button on report pages (`web/src/components/generate-cover-button.tsx`): AI drafts + renders the tailored letter against the report + CV, never submits. Prompt built by the pure, unit-tested `web/src/lib/run-cover-prompt.mjs` (`dc38228`).
 5. **People ledger shipped, graph edges deferred** — the ledger (`path-safety/contacts.mjs`, `data/contacts.jsonl`) now prevents per-person duplicate contact, and a read-only `/api/contacts` web surface exposes it (`09c0bc5`). Graph edges, and channel-scoped dedup remain unbuilt.
 6. **PATH Brain is not functional** — no real provider; `path-run.mjs` hard-forces `fake`/`none`.
 7. **Approval gate is air-tight but terminates at HUMAN_REVIEW** — real physical sending doesn't exist; audit + outbox + approvals are fully wired *for the record*.
