@@ -85,7 +85,7 @@ export function parsePathContacts(raw) {
  * @returns {WebApplication|null}
  */
 function appLookup(apps, id) {
-  if (id == null || typeof apps !== "object" || !apps) return null;
+  if (id == null || id === "" || typeof apps !== "object" || !apps) return null;
   const needle = Number(id);
   if (!Number.isInteger(needle)) return null;
   for (const app of apps) {
@@ -143,7 +143,7 @@ export function companyCountByPerson(contacts, apps) {
  * Per-contact summaries: total edges + the distinct application ids touched.
  * @param {Object[]} contacts
  * @param {WebApplication[]} apps
- * @returns {Array<{contactId: string, edges: number, applications: (string|null)[]}>}
+ * @returns {Array<{contactId: string, edges: number, applications: (string|number|null)[]}>}
  */
 export function summarizeContacts(contacts, apps) {
   return (Array.isArray(contacts) ? contacts : []).map((contact) => {
@@ -159,7 +159,7 @@ export function summarizeContacts(contacts, apps) {
  * the application-side source of truth); missing tracker → null company/role.
  * @param {Object[]} contacts
  * @param {WebApplication[]} apps
- * @returns {{edges: ContactEdge[], companies: Record<string, number>, people: Array<{contactId: string, edges: number, applications: (string|null)[]}>}}
+ * @returns {{edges: ContactEdge[], companies: Record<string, number>, people: Array<{contactId: string, edges: number, applications: (string|number|null)[]}>}}
  */
 export function buildContactGraph(contacts, apps) {
   const people = Array.isArray(contacts) ? contacts : [];

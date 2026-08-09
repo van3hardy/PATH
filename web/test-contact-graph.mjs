@@ -125,6 +125,14 @@ test("unresolved applicationId still yields an edge with null company/role", () 
   assert.deepEqual(graph.people[0].applications, [999]);
 });
 
+test("empty-string applicationId never resolves to tracker row 0", () => {
+  const zeroApp = { n: "0", company: "Zero Co", role: "Zero Role" };
+  const contact = personFixture([{ event: "contacted", at: "2026-07-01T00:00:00.000Z", applicationId: "" }]);
+  const graph = buildContactGraph([contact], [zeroApp]);
+  assert.equal(graph.edges[0].company, null);
+  assert.equal(graph.edges[0].role, null);
+});
+
 test("no history -> person with zero edges, no throw", () => {
   const contact = personFixture([]);
   const graph = buildContactGraph([contact], apps);
