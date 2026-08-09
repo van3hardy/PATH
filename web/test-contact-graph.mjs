@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePathContacts } from "./src/lib/contact-graph.mjs";
+import { parsePathContacts, buildContactGraph } from "./src/lib/contact-graph.mjs";
 
 const aLine = JSON.stringify({
   contactId: "c-aaa",
@@ -67,4 +67,77 @@ test("records without lastContactedAt sort to the end", () => {
   const none = JSON.stringify({ contactId: "c-none", email: "x@example.com", history: [], lastContactedAt: "" });
   const got = parsePathContacts(`${none}\n${bLine}\n`);
   assert.deepEqual(got.map((c) => c.contactId), ["c-bbb", "c-none"]);
+});
+
+// ---- buildContactGraph: person ↔ company / role / timeline edges ----
+
+const apps = [
+  { n: "041", company: "Alpha Corp", role: "Data Engineer" },
+  { n: "042", company: "Example Corp", role: "Ops Manager" },
+];
+
+function personFixture(history) {
+  return { contactId: "c-aaa", name: "Ada", email: "ada@example.test", history, lastContactedAt: history.at(-1)?.at ?? "" };
+}
+
+test("edges resolve applicationId against the tracker and sort by at", () => {
+  const contact = personFixture([
+    { event: "contacted", at: "2026-07-02T00:00:00.000Z", channel: "email", applicationId: 41, source: "dispatch" },
+    { event: "contacted", at: "2026-07-01T00:00:00.000Z", channel: "email", applicationId: 42, source: "dispatch" },
+  ]);
+  const graph = buildContactGraph([contact], apps);
+  assert.equal(graph.edges.length, 2);
+  // sorted ascending by at
+  assert.deepEqual(graph.edges.map((e) => e.applicationId), [42, 41]);
+  const first = graph.edges[0];
+  assert.equal(first.company, "Example Corp");
+  assert.equal(first.role, "Ops Manager");
+  assert.equal(first.channel, "email");
+  assert.equal(graph.companies["Example Corp"], 1);
+  assert.equal(graph.companies["Alpha Corp"], 1);
+  // applications = dedup'd set of application ids touched, order not part of contract
+  assert.deepEqual([...graph.people[0].applications].sort((a, b) => a - b), [41, 42]);
+});
+
+test("company counts a person once even with multiple edges there", () => {
+  const contact = personFixture([
+    { event: "contacted", at: "2026-07-01T00:00:00.000Z", channel: "email", applicationId: 41 },
+    { event: "contacted", at: "2026-07-02T00:00:00.000Z", channel: "email", applicationId: 41 },
+  ]);
+  const graph = buildContactGraph([contact], apps);
+  assert.equal(graph.companies["Alpha Corp"], 1);
+});
+
+test("two people at the same company count 2", () => {
+  const a = personFixture([{ event: "contacted", at: "2026-07-01T00:00:00.000Z", applicationId: 41 }]);
+  const bContact = { ...personFixture([{ event: "contacted", at: "2026-07-02T00:00:00.000Z", applicationId: 41 }]), contactId: "c-bbb" };
+  const graph = buildContactGraph([a, bContact], apps);
+  assert.equal(graph.companies["Alpha Corp"], 2);
+});
+
+test("unresolved applicationId still yields an edge with null company/role", () => {
+  const contact = personFixture([{ event: "contacted", at: "2026-07-01T00:00:00.000Z", channel: "email", applicationId: 999 }]);
+  const graph = buildContactGraph([contact], apps);
+  assert.equal(graph.edges.length, 1);
+  assert.equal(graph.edges[0].company, null);
+  assert.equal(graph.edges[0].role, null);
+  assert.equal(graph.edges[0].applicationId, 999);
+  assert.deepEqual(graph.people[0].applications, [999]);
+});
+
+test("no history -> person with zero edges, no throw", () => {
+  const contact = personFixture([]);
+  const graph = buildContactGraph([contact], apps);
+  assert.equal(graph.edges.length, 0);
+  assert.equal(graph.people[0].edges, 0);
+  assert.deepEqual(graph.people[0].applications, []);
+  assert.deepEqual(graph.companies, {});
+});
+
+test("empty contacts / empty apps degrade gracefully", () => {
+  assert.deepEqual(buildContactGraph([], apps), { edges: [], companies: {}, people: [] });
+  const contact = personFixture([{ event: "contacted", at: "2026-07-01T00:00:00.000Z", applicationId: 42 }]);
+  const noApps = buildContactGraph([contact], []);
+  assert.equal(noApps.edges.length, 1);
+  assert.equal(noApps.edges[0].company, null);
 });
