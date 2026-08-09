@@ -187,7 +187,7 @@ export function parseMessage({ id, payload }) {
     message_id: id,
     from,
     subject,
-    body_snippet: body || seed ? `${seed?.role ?? ''} ${seed?.company ?? ''}`.trim() : '',
+    body_snippet: body || (seed ? `${seed.role} ${seed.company}`.trim() : ''),
     signal: null,
   };
 }
