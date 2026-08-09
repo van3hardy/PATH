@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // @ts-check
-// gmail-scan-replies.mjs — read-only Inbox scanner feeding reply-watch.mjs (#1583).
+// gmail-scan-replies.mjs â€” read-only Inbox scanner feeding reply-watch.mjs (#1583).
 //
 // Turns recent employer replies in the Gmail Inbox into data/reply-candidates.json
-// entries ({ message_id, from, subject, body_snippet, signal: null }) — the exact
+// entries ({ message_id, from, subject, body_snippet, signal: null }) â€” the exact
 // shape reply-watch.mjs consumes. Classification stays in reply-watch.mjs; this
 // script never runs it, never imports tracker-*, and never touches
 // data/applications.md (preserves the HUMAN_REVIEW guarantee).
@@ -16,7 +16,7 @@
 // Usage:
 //   node gmail-scan-replies.mjs [--days N] [--dry-run]
 // Env: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN (same three as
-// gmail-send / plugins/gmail). Config (optional): config/plugins.yml →
+// gmail-send / plugins/gmail). Config (optional): config/plugins.yml â†’
 // plugins.gmail-replies.{days_back, blocklist_senders}.
 
 import { getMessageBody, parseRoleAtCompany } from './plugins/gmail/_helpers.mjs';
@@ -40,7 +40,7 @@ export function buildListQuery({ days }) {
 }
 
 /**
- * Resolve the blocklist: inline defaults ∪ config overlay. Domains are
+ * Resolve the blocklist: inline defaults âˆª config overlay. Domains are
  * lowercased; a bare address ("foo@bar.com") is normalized to its domain.
  * @param {{ cfg?: any }} o
  * @returns {Set<string>}
@@ -164,4 +164,71 @@ export async function fetchMessageDetail({ token, id, fetchFn = globalThis.fetch
   });
   if (!res.ok) throw codedError('DETAIL_FAILED');
   return res.json();
+}
+
+/**
+ * Extract the set of already-seen Gmail message ids from a candidates array.
+ * @param {Array<{ message_id?: string }>} candidates
+ * @returns {Set<string>}
+ */
+export function existingIdsFromCandidates(candidates) {
+  return new Set((candidates || []).map((c) => c.message_id).filter(Boolean));
+}
+
+/**
+ * Scan the Inbox window and hand every new, non-blocklisted message to
+ * writeCandidate as a reply-watch candidate. Idempotent: messages already in
+ * the candidates file (existingIds) or the shared state cursor are skipped.
+ * writeCandidate / writeState are injected so --dry-run can make them no-ops
+ * and tests can capture them without touching the file system.
+ *
+ * @param {object} o
+ * @param {{ clientId: string, clientSecret: string, refreshToken: string }} o.credentials
+ * @param {any} o.cfg
+ * @param {number} o.days
+ * @param {Set<string>} o.existingIds
+ * @param {Set<string>} o.stateCursor
+ * @param {any} o.fetchFn
+ * @param {(cand: any) => Promise<void>} o.writeCandidate
+ * @param {(ids: Set<string>) => Promise<void>} o.writeState
+ * @returns {Promise<{ scanned: number, appended: string[], skippedSeen: number, skippedBlocklisted: number, skippedErrored: number }>}
+ */
+export async function scanReplies({
+  credentials, cfg, days, existingIds, stateCursor, fetchFn = globalThis.fetch,
+  writeCandidate, writeState,
+}) {
+  const blocklist = resolveBlocklist({ cfg });
+  const token = await getAccessToken(credentials, fetchFn);
+  const query = buildListQuery({ days });
+  const appended = [];
+  let skippedSeen = 0;
+  let skippedBlocklisted = 0;
+  let skippedErrored = 0;
+  let scanned = 0;
+
+  let pageToken = null;
+  do {
+    const page = await fetchMessageList({ token, query, pageToken, fetchFn });
+    for (const entry of page.messages || []) {
+      const id = entry.id;
+      if (existingIds.has(id) || stateCursor.has(id)) { skippedSeen++; continue; }
+      let detail;
+      try {
+        detail = await fetchMessageDetail({ token, id, fetchFn });
+      } catch (err) {
+        skippedErrored++;
+        console.warn(`gmail-replies: failed to fetch message ${id} — ${err.message}`);
+        continue;
+      }
+      const candidate = parseMessage({ id, payload: detail?.payload });
+      if (isBlocklisted(candidate.from, blocklist)) { skippedBlocklisted++; continue; }
+      await writeCandidate(candidate);
+      appended.push(id);
+      scanned++;
+    }
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+
+  await writeState(new Set([...stateCursor, ...appended]));
+  return { scanned, appended, skippedSeen, skippedBlocklisted, skippedErrored };
 }

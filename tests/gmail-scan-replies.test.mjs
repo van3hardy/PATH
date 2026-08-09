@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildListQuery, resolveBlocklist, isBlocklisted, parseMessage,
   getAccessToken, fetchMessageList, fetchMessageDetail,
+  existingIdsFromCandidates, scanReplies,
 } from '../gmail-scan-replies.mjs';
 
 test('buildListQuery renders in:inbox newer_than:Nd', () => {
@@ -31,7 +32,7 @@ test('parseMessage extracts headers + body and sets signal null', () => {
       { name: 'Subject', value: 'Interview invitation' },
     ],
     parts: [{
-      body: { data: Buffer.from('Your first-round interview is…').toString('base64url') },
+      body: { data: Buffer.from('Your first-round interview isâ€¦').toString('base64url') },
     }],
   };
   const cand = parseMessage({ id: 'abc123', payload });
@@ -39,7 +40,7 @@ test('parseMessage extracts headers + body and sets signal null', () => {
     message_id: 'abc123',
     from: 'recruiter@example.com',
     subject: 'Interview invitation',
-    body_snippet: 'Your first-round interview is…',
+    body_snippet: 'Your first-round interview isâ€¦',
     signal: null,
   });
 });
@@ -93,4 +94,60 @@ test('fetchMessageDetail GETs the full message payload', async () => {
   };
   const detail = await fetchMessageDetail({ token: 't', id: 'm1', fetchFn });
   assert.equal(detail.id, 'm1');
+});
+
+test('scanReplies appends only unseen, non-blocklisted messages', async () => {
+  const detailPayloads = {
+    m1: { id: 'm1', payload: { headers: [{ name: 'From', value: 'r1@example.com' }, { name: 'Subject', value: 'Interview' }], parts: [{ body: { data: Buffer.from('hi').toString('base64url') } }] } },
+    m2: { id: 'm2', payload: { headers: [{ name: 'From', value: 'noreply@alerts.example.com' }, { name: 'Subject', value: 'Job alert' }], parts: [] } },
+  };
+  const fetchFn = async (url) => {
+    if (url.includes('/token')) return { ok: true, json: async () => ({ access_token: 't' }) };
+    if (url.includes('/messages?')) return { ok: true, json: async () => ({ messages: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }] }) };
+    const id = /\/messages\/([^?]+)\?format=full/.exec(url)?.[1];
+    if (id === 'm3') return { ok: true, json: async () => ({ id: 'm3', payload: { headers: [{ name: 'From', value: 'seen@example.com' }], parts: [] } }) };
+    return { ok: true, json: async () => detailPayloads[id] };
+  };
+  const writes = [];
+  const result = await scanReplies({
+    credentials: { clientId: 'c', clientSecret: 's', refreshToken: 'r' },
+    cfg: { plugins: { 'gmail-replies': { blocklist_senders: ['alerts.example.com'] } } },
+    days: 7,
+    existingIds: new Set(['m3']),   // m3 already a candidate → skipped
+    stateCursor: new Set(),
+    fetchFn,
+    writeCandidate: async (cand) => { writes.push(cand); },
+    writeState: async () => {},
+  });
+  assert.deepEqual(result.appended, ['m1']);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].message_id, 'm1');
+  assert.equal(result.skippedSeen, 1);       // m3
+  assert.equal(result.skippedBlocklisted, 1); // m2
+  assert.equal(result.skippedErrored, 0);
+});
+
+test('scanReplies survives a single bad detail fetch', async () => {
+  const fetchFn = async (url) => {
+    if (url.includes('/token')) return { ok: true, json: async () => ({ access_token: 't' }) };
+    if (url.includes('/messages?')) return { ok: true, json: async () => ({ messages: [{ id: 'bad' }] }) };
+    return { ok: false, status: 500, json: async () => ({}) };
+  };
+  const writes = [];
+  const result = await scanReplies({
+    credentials: { clientId: 'c', clientSecret: 's', refreshToken: 'r' },
+    cfg: {}, days: 7, existingIds: new Set(), stateCursor: new Set(),
+    fetchFn,
+    writeCandidate: async (cand) => writes.push(cand),
+    writeState: async () => {},
+  });
+  assert.equal(result.skippedErrored, 1);
+  assert.equal(writes.length, 0);
+});
+
+test('existingIdsFromCandidates extracts message_ids from candidate arrays', () => {
+  const ids = existingIdsFromCandidates([
+    { message_id: 'a' }, { message_id: 'b' },
+  ]);
+  assert.deepEqual([...ids].sort(), ['a', 'b']);
 });
