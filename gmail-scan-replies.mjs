@@ -103,3 +103,65 @@ export function parseMessage({ id, payload }) {
     signal: null,
   };
 }
+
+const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
+
+function codedError(code, cause) {
+  return Object.assign(new Error(code, cause ? { cause } : undefined), { code });
+}
+
+/**
+ * Exchange the long-lived refresh token for a short-lived access token.
+ * Mirrors transports/gmail-send.mjs and plugins/gmail/index.mjs.
+ * @param {{ clientId: string, clientSecret: string, refreshToken: string }} creds
+ * @param {(url: string, init?: any) => Promise<any>} fetchFn
+ * @returns {Promise<string>}
+ */
+export async function getAccessToken({ clientId, clientSecret, refreshToken }, fetchFn = globalThis.fetch) {
+  let response;
+  try {
+    response = await fetchFn(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+  } catch (cause) {
+    throw codedError('OAUTH_FAILED', cause);
+  }
+  if (!response.ok) throw codedError('OAUTH_FAILED');
+  const data = await response.json().catch(() => ({}));
+  if (!data.access_token) throw codedError('OAUTH_FAILED');
+  return data.access_token;
+}
+
+/**
+ * GET the message id list for a query, one page.
+ * @param {{ token: string, query: string, pageToken: string | null, fetchFn: any }} o
+ * @returns {Promise<{ messages: Array<{ id: string }>, nextPageToken?: string }>}
+ */
+export async function fetchMessageList({ token, query, pageToken, fetchFn = globalThis.fetch }) {
+  let url = `${GMAIL_API}/messages?q=${encodeURIComponent(query)}`;
+  if (pageToken) url += `&pageToken=${pageToken}`;
+  const res = await fetchFn(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw codedError('LIST_FAILED');
+  return res.json();
+}
+
+/**
+ * GET the full detail payload for a single message id.
+ * @param {{ token: string, id: string, fetchFn: any }} o
+ * @returns {Promise<any>}
+ */
+export async function fetchMessageDetail({ token, id, fetchFn = globalThis.fetch }) {
+  const res = await fetchFn(`${GMAIL_API}/messages/${id}?format=full`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw codedError('DETAIL_FAILED');
+  return res.json();
+}
