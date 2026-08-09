@@ -44,13 +44,14 @@ export function seed() {
       const email = contact?.email;
       if (!email) continue; // name-only contacts can't be deduped — skip silently
       if (findPersonByEmail(ledger, email)) continue; // idempotent
-      markContactedFromBackfill(CONTACTS_FILE, {
+      const record = markContactedFromBackfill(CONTACTS_FILE, {
         name: contact.name ?? row.company ?? null,
         email,
         channel: contact.channel ?? 'email',
         at: row.date ? `${row.date}T00:00:00.000Z` : undefined,
         applicationId: row.num ?? null
       });
+      ledger.set(record.contactId, record); // keep the in-memory map in sync within this run
       contacts += 1;
     }
   }
@@ -59,13 +60,14 @@ export function seed() {
     for (const entry of readRecipients(file)) {
       const email = entry.recipient.address;
       if (findPersonByEmail(ledger, email)) continue; // idempotent
-      markContactedFromBackfill(CONTACTS_FILE, {
+      const record = markContactedFromBackfill(CONTACTS_FILE, {
         name: entry.recipient.name ?? null,
         email,
         channel: 'email',
         at: entry.createdAt ?? entry.timestamp,
         applicationId: null
       });
+      ledger.set(record.contactId, record); // keep the in-memory map in sync within this run
       events += 1;
     }
   }
