@@ -86,9 +86,40 @@ node scripts/contacts-backfill.mjs
 
 ## Deferred follow-ups
 
-- Graph edges (person ↔ companies, roles, timeline).
+- ~~Graph edges (person ↔ companies, roles, timeline)~~ → **SHIPPED**, see below.
 - Channel-scoped dedup (e.g. email-only vs LinkedIn-only re-contact policies).
 - Dedup on name-only contacts (no email yet).
+
+## Graph edges (person ↔ companies, roles, timeline)
+
+Built. The web surface now derives edges from the same append-only ledger —
+every event in a contact's `history` is mapped to its application, resolving
+`company`/`role` from the application tracker (`data/applications.md`), the
+job-side of the graph. Derived at read time only; the ledger stays append-only.
+
+Shape (additive `graph` block on `/api/contacts`, backward-compatible):
+
+```json
+{
+  "edges": [ { "contactId": "…", "applicationId": 42, "company": "Example Corp",
+               "role": "Ops Manager", "at": "…", "channel": "email" } ],
+  "companies": { "Example Corp": 1 },
+  "people": [ { "contactId": "…", "edges": 2, "applications": [41, 42] } ]
+}
+```
+
+- `edges`: every history event, sorted by `at` asc then `applicationId`. An
+  `applicationId` that can't be resolved (deleted/renumbered tracker row) still
+  yields an edge with `null` company/role — the ledger is truth for "contacted".
+- `companies`: company → number of **distinct people** contacted about it (a
+  person counts once per company regardless of event count).
+- `people`: per contact — total edge count + distinct application ids touched.
+- Application ids compare numerically, so the ledger's numeric `applicationId`
+  matches the tracker's zero-padded `n` (`"042"` ↔ `42`).
+
+Pure derivation lives in `web/src/lib/contact-graph.mjs`
+(`buildContactGraph`, `buildContactEdges`, `companyCountByPerson`,
+`summarizeContacts`) and is regression-tested by `web/test-contact-graph.mjs`.
 
 ## Web surface (`/api/contacts`)
 
