@@ -112,6 +112,7 @@ Pure, fs + crypto only (same dependency discipline as `audit-ledger.mjs`), no co
 
 ## 13. Follow-ups (explicitly deferred)
 
-- Graph edges: `company` / `role` / `application` nodes + edge ledger (gap-review §2 #5 in full).
-- Web `/api/contacts` surface for viewing/managing the ledger.
-- Channel-scoped dedup (LinkedIn — never two LinkedIn messages) and LinkedIn send dedup.
+- ~~Graph edges: `company` / `role` / `application` nodes + edge ledger (gap-review §2 #5 in full)~~ → SHIPPED (derived at read time, additive `graph` block on `/api/contacts`; see plan `2026-08-08-contact-graph-edges.md`).
+- ~~Web `/api/contacts` surface for viewing/managing the ledger~~ → SHIPPED (commit `09c0bc5`).
+- ~~Channel-scoped dedup (LinkedIn — never two LinkedIn messages) and LinkedIn send dedup~~ → SHIPPED. `isContactedOnChannel(contacts, email, channel)` blocks a dispatch only when the person already has history on the packet's intended channel (`packet.action.channel`; `gmail` canonicalizes to `email`); cross-channel touches are allowed; blank channel fails closed to any-history semantics (`isAlreadyContacted`). Write-back records the canonical intended channel, so a second LinkedIn dispatch after a first LinkedIn touch is correctly refused.
+- Dedup on name-only contacts (no email yet).

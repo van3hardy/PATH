@@ -38,7 +38,9 @@ Pure fs + crypto, mirrors `audit-ledger.mjs` discipline.
 
 - `loadContacts(filePath) → Map<contactId, record>` — last line wins; missing file = empty map; corrupt line throws `FAILED_CONTACTS_MALFORMED`.
 - `findPersonByEmail(contacts, email) → record | undefined` — case-insensitive match.
-- `isAlreadyContacted(contacts, email) → boolean` — true iff the person has a non-empty `history`.
+- `isAlreadyContacted(contacts, email) → boolean` — true iff the person has a non-empty `history` (any channel).
+- `canonicalChannel(channel) → string | undefined` — maps the transport/action vocabulary (`gmail` → `email`) to the ledger's channel vocabulary; unknown channels pass through trimmed lowercased; blank → `undefined`.
+- `isContactedOnChannel(contacts, email, channel) → boolean` — channel-scoped dedup predicate: true iff the person has a prior contact event on that channel. A blank/untold channel fails closed to `isAlreadyContacted` (any history blocks).
 - `upsertContact(filePath, { name, email, channel, at, applicationId, source = 'dispatch' }) → record`
 - `markContactedFromBackfill(filePath, { name, email, channel, at, applicationId }) → record`
 
@@ -53,9 +55,9 @@ node scripts/path-dispatch.mjs <packet> <approvals> <dispatches> <audit> --send 
 ```
 
 - Absent flag or missing file → the gate behaves exactly as before (no behavior change).
-- Recipient already in the ledger with history → status `BLOCKED_ALREADY_CONTACTED` (exit 1); the hard stop lives here, not in the draft.
+- Recipient already in the ledger with history **on the packet's intended channel** → status `BLOCKED_ALREADY_CONTACTED` (exit 1); the hard stop lives here, not in the draft. Channel-scoped dedup: a prior **email** blocks an email dispatch but not a fresh LinkedIn touch, and vice versa. The intended channel comes from `packet.action.channel` (transport vocabulary; `gmail` counts as `email`). A packet with no channel fails closed to the old any-history behavior.
 - A corrupt ledger → `BLOCKED_INVALID_CONTACTS` (exit 1), never silent.
-- On a successful `--send`, the recipient is written back as `{ source: 'dispatch' }`. A write-back failure keeps exit 0 `DISPATCHED` but surfaces `contactWriteError` on stdout — the dispatch already happened.
+- On a successful `--send`, the recipient is written back as `{ source: 'dispatch' }` **on the canonical intended channel** (e.g. `email` for a `gmail` packet, `linkedin` for `send_linkedin`). A write-back failure keeps exit 0 `DISPATCHED` but surfaces `contactWriteError` on stdout — the dispatch already happened.
 
 Integration tests: `tests/path-safety/dispatch-send.test.mjs`.
 
@@ -87,7 +89,7 @@ node scripts/contacts-backfill.mjs
 ## Deferred follow-ups
 
 - ~~Graph edges (person ↔ companies, roles, timeline)~~ → **SHIPPED**, see below.
-- Channel-scoped dedup (e.g. email-only vs LinkedIn-only re-contact policies).
+- ~~Channel-scoped dedup (e.g. email-only vs LinkedIn-only re-contact policies)~~ → **SHIPPED**, see Dispatch gate above (`isContactedOnChannel` + canonical write-back).
 - Dedup on name-only contacts (no email yet).
 
 ## Graph edges (person ↔ companies, roles, timeline)

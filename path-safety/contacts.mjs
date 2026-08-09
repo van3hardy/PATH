@@ -64,6 +64,27 @@ export function isAlreadyContacted(contacts, email) {
   return Array.isArray(person?.history) && person.history.length > 0;
 }
 
+// Normalizes the transport/action vocabulary (e.g. "gmail") to the ledger's
+// channel vocabulary (e.g. "email"). Unknown channels pass through trimmed
+// lowercased; a blank channel produces undefined.
+export function canonicalChannel(channel) {
+  if (!isNonemptyString(channel)) return undefined;
+  const trimmed = channel.trim().toLowerCase();
+  return trimmed === 'gmail' ? 'email' : trimmed;
+}
+
+// Channel-scoped dedup predicate. True iff the person has a prior contact
+// event on the given channel. When the channel is blank/untold it fails
+// closed to the old behavior (any history blocks), never the reverse.
+export function isContactedOnChannel(contacts, email, channel) {
+  const needle = canonicalChannel(channel);
+  if (!needle) return isAlreadyContacted(contacts, email);
+  const person = findPersonByEmail(contacts, email);
+  if (!person) return false;
+  return Array.isArray(person.history) && person.history.some((event) =>
+    event && canonicalChannel(event.channel) === needle);
+}
+
 function mergeChannel(channels, { channel, address, firstSeenAt }) {
   if (channels.some((entry) =>
     entry.channel === channel && canonicalEmail(entry.address) === canonicalEmail(address))) {

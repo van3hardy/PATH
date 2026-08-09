@@ -82,6 +82,15 @@ function approvalFor(packet, decision = 'APPROVED') {
   };
 }
 
+function makeLinkedinPacket(overrides = {}) {
+  // Same address, second channel. The integrity check only requires any
+  // non-empty action.channel, so a distinct action object is a valid packet.
+  return makePacket({ action: {
+    type: 'send_linkedin', channel: 'linkedin', touch: 'first',
+    opportunity: { company: 'Example Company', role: 'AI Engineer' }
+  }, ...overrides });
+}
+
 function runSendCli(packet, {
   decision = 'APPROVED',
   dispatches = [],
@@ -114,13 +123,13 @@ function makeContactsLedger(dir, records) {
   return contactsPath;
 }
 
-function priorContactRecord(email = 'hm@example.com') {
+function priorContactRecord(email = 'hm@example.com', channel = 'email') {
   return {
     contactId: 'c-0123456789abcdef',
     name: 'Hiring Manager',
     email,
-    channels: [{ channel: 'email', address: email, firstSeenAt: '2026-07-29T21:30:00.000Z' }],
-    history: [{ event: 'contacted', at: '2026-07-29T21:30:00.000Z', channel: 'email', applicationId: 12, source: 'backfill' }],
+    channels: [{ channel, address: email, firstSeenAt: '2026-07-29T21:30:00.000Z' }],
+    history: [{ event: 'contacted', at: '2026-07-29T21:30:00.000Z', channel, applicationId: 12, source: 'backfill' }],
     lastContactedAt: '2026-07-29T21:30:00.000Z'
   };
 }
@@ -246,4 +255,51 @@ test('a corrupt contacts ledger blocks as BLOCKED_INVALID_CONTACTS', () => {
   assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_INVALID_CONTACTS');
   assert.equal(fs.readFileSync(dispatchPath, 'utf8'), '');
+});
+
+test('channel-scoped dedup — a prior email contact blocks an email dispatch', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [priorContactRecord('hm@example.com', 'email')]);
+  const packet = makePacket(); // action.channel gmail -> canonical email
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8'), '');
+});
+
+test('channel-scoped dedup — a LinkedIn-only contact does NOT block an email dispatch', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [priorContactRecord('hm@example.com', 'linkedin')]);
+  const packet = makePacket(); // email intent over gmail
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  // Write-back appends the email channel (canonicalized from gmail); the
+  // prior LinkedIn event stays first in history.
+  const contact = JSON.parse(fs.readFileSync(contactsPath, 'utf8').split(/\r?\n/).filter(Boolean).at(-1));
+  assert.equal(contact.email, packet.recipient.address);
+  assert.equal(contact.history.at(-1).channel, 'email');
+  assert.equal(contact.history.at(-1).source, 'dispatch');
+  assert.equal(contact.history[0].channel, 'linkedin'); // untouched prior
+});
+
+test('channel-scoped dedup — an email contact does NOT block a LinkedIn dispatch (cross-channel)', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [priorContactRecord('hm@example.com', 'email')]);
+  const packet = makeLinkedinPacket(); // action channel linkedin
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8').split(/\r?\n/).filter(Boolean).length, 1);
+});
+
+test('channel-scoped dedup — writing back a LinkedIn touch then blocks a second LinkedIn dispatch', () => {
+  const dir = tempDir();
+  const contactsPath = path.join(dir, 'contacts.jsonl');
+  const first = runSendCli(makeLinkedinPacket(), { contactsPath });
+  assert.equal(first.result.status, 0, first.result.stdout);
+  assert.equal(JSON.parse(first.result.stdout).status, 'DISPATCHED');
+  const second = runSendCli(makeLinkedinPacket({ finalText: 'Follow-up outreach.' }), { contactsPath });
+  assert.equal(second.result.status, 1);
+  assert.equal(JSON.parse(second.result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
 });

@@ -8,6 +8,8 @@ import {
   loadContacts,
   findPersonByEmail,
   isAlreadyContacted,
+  isContactedOnChannel,
+  canonicalChannel,
   upsertContact,
   markContactedFromBackfill
 } from '../../path-safety/contacts.mjs';
@@ -106,6 +108,50 @@ test('isAlreadyContacted truth table', (t) => {
   // Cross-channel: a LinkedIn contact still counts against the same email.
   upsertContact(filePath, { email: 'linked@example.com', channel: 'linkedin', at: '2026-08-02T00:00:00.000Z' });
   assert.equal(isAlreadyContacted(loadContacts(filePath), 'linked@example.com'), true);
+});
+
+test('canonicalChannel maps gmail to email and passes the rest through trimmed', () => {
+  assert.equal(canonicalChannel('gmail'), 'email');
+  assert.equal(canonicalChannel('Gmail'), 'email');
+  assert.equal(canonicalChannel('email'), 'email');
+  assert.equal(canonicalChannel('linkedin'), 'linkedin');
+  assert.equal(canonicalChannel(' LinkedIn '), 'linkedin');
+  assert.equal(canonicalChannel(''), undefined);
+  assert.equal(canonicalChannel(undefined), undefined);
+  assert.equal(canonicalChannel(null), undefined);
+});
+
+test('isContactedOnChannel truth table — same channel blocks, other channels do not', (t) => {
+  const filePath = tempFile(t);
+  const map = loadContacts(filePath);
+  assert.equal(isContactedOnChannel(map, 'nobody@example.com', 'email'), false);
+  assert.equal(isContactedOnChannel(map, 'nobody@example.com', 'linkedin'), false);
+
+  // Email-contact only: email blocks, LinkedIn does not, gmail alias matches.
+  upsertContact(filePath, { email: 'a@example.com', channel: 'email', at: '2026-08-01T00:00:00.000Z' });
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'a@example.com', 'email'), true);
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'a@example.com', 'gmail'), true); // alias
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'a@example.com', 'linkedin'), false);
+
+  // LinkedIn-contact only: email does not block.
+  upsertContact(filePath, { email: 'b@example.com', channel: 'linkedin', at: '2026-08-02T00:00:00.000Z' });
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'b@example.com', 'linkedin'), true);
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'b@example.com', 'email'), false);
+
+  // Both channels: each blocks.
+  upsertContact(filePath, { email: 'c@example.com', channel: 'email', at: '2026-08-01T00:00:00.000Z' });
+  upsertContact(filePath, { email: 'c@example.com', channel: 'linkedin', at: '2026-08-03T00:00:00.000Z' });
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'c@example.com', 'email'), true);
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'c@example.com', 'linkedin'), true);
+});
+
+test('isContactedOnChannel fails closed — blank channel falls back to any-history', (t) => {
+  const filePath = tempFile(t);
+  upsertContact(filePath, { email: 'd@example.com', channel: 'linkedin', at: '2026-08-02T00:00:00.000Z' });
+  // Blank/untold channel = conservative old behavior: any history blocks.
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'd@example.com', undefined), true);
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'd@example.com', ''), true);
+  assert.equal(isContactedOnChannel(loadContacts(filePath), 'nobody@example.com', undefined), false);
 });
 
 test('markContactedFromBackfill writes a source=backfill history event', (t) => {
