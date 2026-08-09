@@ -87,6 +87,14 @@ node scripts/contacts-backfill.mjs
 ## Deferred follow-ups
 
 - Graph edges (person ↔ companies, roles, timeline).
-- Web surface (`/api/contacts`).
 - Channel-scoped dedup (e.g. email-only vs LinkedIn-only re-contact policies).
 - Dedup on name-only contacts (no email yet).
+
+## Web surface (`/api/contacts`)
+
+Built (commit `09c0bc5`). A read-only GET route decodes the same append-only
+ledger the CLI uses (last line per `contactId` wins, matching
+`path-safety/contacts.mjs loadContacts`), so the web and CLI can never agree on
+different people. Pure parser lives in `web/src/lib/contact-graph.mjs`
+(`parsePathContacts`, JSDoc-typed, no Next dependency) and is regression-tested
+by `web/test-contact-graph.mjs` (wired into `web/package.json` `test`).
