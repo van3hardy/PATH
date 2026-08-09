@@ -36,7 +36,7 @@
   - `isBlocklisted(from, blocklist)` → `boolean`
   - `parseMessage({ id, payload })` → `{ message_id, from, subject, body_snippet, signal: null }`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 import assert from 'node:assert/strict';
@@ -85,12 +85,12 @@ test('parseMessage extracts headers + body and sets signal null', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: FAIL — `ERR_MODULE_NOT_FOUND` / `Cannot find module '../gmail-scan-replies.mjs'`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Create `gmail-scan-replies.mjs`:
 
@@ -202,12 +202,12 @@ export function parseMessage({ id, payload }) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: 4/4 PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gmail-scan-replies.mjs tests/gmail-scan-replies.test.mjs
@@ -229,7 +229,7 @@ git commit -m "feat(gmail-replies): pure helpers — list query, blocklist, mess
   - `fetchMessageList({ token, query, pageToken, fetchFn })` → `{ messages: Array<{id:string}>, nextPageToken?: string }`
   - `fetchMessageDetail({ token, id, fetchFn })` → `Promise<any>` (full payload)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 test('getAccessToken exchanges the refresh grant and returns the access token', async () => {
@@ -284,12 +284,12 @@ test('fetchMessageDetail GETs the full message payload', async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: FAIL — `getAccessToken is not a function`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `gmail-scan-replies.mjs`:
 
@@ -357,12 +357,12 @@ export async function fetchMessageDetail({ token, id, fetchFn = globalThis.fetch
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: ALL PASS (previous 4 + new 4 = 8).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gmail-scan-replies.mjs tests/gmail-scan-replies.test.mjs
@@ -383,7 +383,7 @@ git commit -m "feat(gmail-replies): OAuth token exchange + Gmail list/detail fet
   - `scanReplies({ credentials, cfg, days, existingIds, stateCursor, fetchFn, writeCandidate, writeState })` → `Promise<{ scanned: number, appended: string[], skippedSeen: number, skippedBlocklisted: number, skippedErrored: number }>`
   - `existingIdsFromCandidates(candidates)` → `Set<string>`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 test('scanReplies appends only unseen, non-blocklisted messages', async () => {
@@ -444,12 +444,12 @@ test('existingIdsFromCandidates extracts message_ids from candidate arrays', () 
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: FAIL — `scanReplies is not a function`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `gmail-scan-replies.mjs`:
 
@@ -522,12 +522,12 @@ export async function scanReplies({
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: ALL PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gmail-scan-replies.mjs tests/gmail-scan-replies.test.mjs
@@ -548,7 +548,7 @@ git commit -m "feat(gmail-replies): scanReplies orchestrator with injectable wri
   - `parseArgs(argv)` → `{ days: number, dryRun: boolean }`
   - `main()` (guarded: runs only when executed directly, like `paste-reply.mjs`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 test('parseArgs defaults and --days/--dry-run overrides', () => {
@@ -583,12 +583,12 @@ test('CLI --help prints usage and exits 0', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: FAIL — `parseArgs is not a function`, CLI exits 1 / no `--help` handling.
 
-- [ ] **Step 3: Implement the CLI**
+- [x] **Step 3: Implement the CLI**
 
 Append to `gmail-scan-replies.mjs`:
 
@@ -723,17 +723,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node --test tests/gmail-scan-replies.test.mjs`
 Expected: ALL PASS.
 
-- [ ] **Step 5: Verify the full discovered suite still passes**
+- [x] **Step 5: Verify the full discovered suite still passes**
 
 Run: `node test-all.mjs --only gmail-scan-replies`
 Expected: `gmail-scan-replies.test.mjs — node:test suite passed (N tests)`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add gmail-scan-replies.mjs tests/gmail-scan-replies.test.mjs
@@ -750,7 +750,7 @@ git commit -m "feat(gmail-replies): CLI — args, env, config, file writes, dry-
 
 **Interfaces:** none (docs only).
 
-- [ ] **Step 1: Add the config example block**
+- [x] **Step 1: Add the config example block**
 
 Append to `config/plugins.example.yml` after the existing `gmail:` block:
 
@@ -765,16 +765,16 @@ Append to `config/plugins.example.yml` after the existing `gmail:` block:
     # blocklist_senders: []   # extra job-alert senders to skip (domains or addresses)
 ```
 
-- [ ] **Step 2: Write the scanner reference doc**
+- [x] **Step 2: Write the scanner reference doc**
 
 Create `docs/path/gmail-reply-scanner.md` with: purpose (one paragraph, closes `#1583`), usage (`node gmail-scan-replies.mjs [--days N] [--dry-run]`), env vars (the three `GMAIL_*`), config (`config/plugins.yml` → `plugins.gmail-replies`), data flow (Inbox → filter → `data/reply-candidates.json`, shared `data/gmail-state.json` cursor), safety notes (no tracker writes, no DMARC gate by design, idempotency), and the next step (`node reply-watch.mjs`).
 
-- [ ] **Step 3: Verify the mode/example config reference is syntactically valid**
+- [x] **Step 3: Verify the mode/example config reference is syntactically valid**
 
 Run: `node test-all.mjs --only plugins`
 Expected: PASS — the example config stays parseable (any existing config-integrity assertions).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add config/plugins.example.yml docs/path/gmail-reply-scanner.md
@@ -790,20 +790,20 @@ git commit -m "docs(gmail-replies): config example block + scanner reference"
 
 **Interfaces:** none.
 
-- [ ] **Step 1: Run the full test suite**
+- [x] **Step 1: Run the full test suite**
 
 Run: `node test-all.mjs`
 Expected: All suites pass, no regressions (the new `tests/gmail-scan-replies.test.mjs` appears in the discovered list).
 
-- [ ] **Step 2: Update the gap review**
+- [x] **Step 2: Update the gap review**
 
 In `docs/path/gap-review.md`, update the §9 row status from ⚠️ to ✅ (or note the scanner as shipped, keeping the row honest) and adjust the §6 cross-cutting item that says the reply feed is "manual only". Reference `gmail-scan-replies.mjs` and the design/plan docs.
 
-- [ ] **Step 3: Run lint/typecheck if the repo provides it**
+- [x] **Step 3: Run lint/typecheck if the repo provides it**
 
 Run: `node doctor.mjs` (if it exists) to confirm no new env/key complaints beyond the expected `GMAIL_*` note; skip any check that requires live credentials.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/path/gap-review.md
