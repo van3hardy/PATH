@@ -30,7 +30,7 @@ The conversation-intelligence pipeline (`reply-watch.mjs` → classify → promp
 1. **`gmail-scan-replies.mjs`** (new, repo root, sibling of `paste-reply.mjs` / `reply-watch.mjs`). No package deps; raw `fetch`. Composed of small units:
    - `getAccessToken({ clientId, clientSecret, refreshToken }, fetchFn = globalThis.fetch)` — copy of the existing OAuth refresh pattern (same shape as `transports/gmail-send.mjs`).
    - `buildListQuery({ days })` — builds the Gmail `q` string: `in:inbox newer_than:{n}d`.
-   - `resolveBlocklist({ settings })` → `Set<string>` — inline default sender domains + optional `config/plugins.yml` `gmail-replies.blocklist` override.
+   - `resolveBlocklist({ cfg })` → `Set<string>` — inline default sender domains + optional `config/plugins.yml` `plugins.gmail-replies.blocklist_senders` overlay.
    - `isBlocklisted(domain, blocklist)` → boolean.
    - `parseMessage({ id, detailPayload })` — detail shape → candidate `{ message_id, from, subject, body_snippet, signal: null }` via `getMessageBody` + `parseRoleAtCompany` from `plugins/gmail/_helpers.mjs`.
    - `scanReplies({ ..., write })` — orchestrator: list → paginate → per-message skip (candidates file has seen id / state cursor has id / blocklist sender) → detail → candidate → append; persists processed ids to `data/gmail-state.json`. Injects `write` (in `--dry-run` mode a no-op) so the whole flow is testable without the file system and without Gmail.
@@ -47,13 +47,14 @@ The conversation-intelligence pipeline (`reply-watch.mjs` → classify → promp
 ### Config (`config/plugins.yml`, optional)
 
 ```yaml
-gmail-replies:
-  days_back: 30            # override the --days default (7)
-  blocklist_senders:
-    - alerts.example.com   # extra sender domains to skip, additive to inline defaults
+plugins:
+  gmail-replies:
+    days_back: 30            # override the --days default (7)
+    blocklist_senders:
+      - alerts.example.com   # extra sender domains to skip, additive to inline defaults
 ```
 
-`enabled: false` (default) in the copy — same opt-in posture as plugins. Reading the yaml is via the same config loader the plugin engine uses (a small yaml parse; no schema, missing block → defaults only).
+Read via the engine's `loadPluginConfig(root)` (fail-open to `{}` if absent/malformed) → `cfg.plugins?.['gmail-replies']`. Running the script directly is the opt-in — no `enabled` flag gates a standalone script.
 
 ### Env
 
@@ -99,4 +100,4 @@ Same three vars as dispatch send / gmail ingest, no new ones (`GMAIL_CLIENT_ID`,
 
 ## Open questions
 
-- (none — resolved during brainstorming: scope=Inbox minus blocklist; write=append into `reply-candidates.json`; dedupe=candidates file + shared state cursor; blocklist=config; placement=standalone root script; DMARC=relaxed.)
+- (none — resolved during brainstorming: scope=Inbox minus blocklist; write=append into `reply-candidates.json`; dedupe=candidates file + shared state cursor; blocklist=config (`plugins.gmail-replies.blocklist_senders`); placement=standalone root script; DMARC=relaxed.)
