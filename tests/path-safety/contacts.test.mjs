@@ -7,8 +7,10 @@ import test from 'node:test';
 import {
   loadContacts,
   findPersonByEmail,
+  findPersonByName,
   isAlreadyContacted,
   isContactedOnChannel,
+  isContactedByNameOnChannel,
   canonicalChannel,
   upsertContact,
   markContactedFromBackfill
@@ -184,4 +186,78 @@ test('a valid-JSON non-object entry throws FAILED_CONTACTS_MALFORMED', (t) => {
   const filePath = tempFile(t);
   fs.writeFileSync(filePath, '"just a string"\n', 'utf8');
   assert.throws(() => loadContacts(filePath), (e) => e.code === 'FAILED_CONTACTS_MALFORMED');
+});
+
+test('upsert without an email creates a name-only record with a c-n- id', (t) => {
+  const filePath = tempFile(t);
+  const record = upsertContact(filePath, {
+    name: '  Sarah   Chen ', channel: 'linkedin', at: '2026-08-09T10:00:00.000Z', applicationId: 12
+  });
+  assert.match(record.contactId, /^c-n-[a-f0-9]{16}$/);
+  assert.equal(record.name, '  Sarah   Chen '); // first-seen verbatim
+  assert.equal(record.email, null);
+  assert.deepEqual(record.channels, [{ channel: 'linkedin', address: '  Sarah   Chen ', firstSeenAt: '2026-08-09T10:00:00.000Z' }]);
+  assert.equal(record.history.length, 1);
+  assert.equal(record.history[0].channel, 'linkedin');
+  assert.equal(readLines(filePath).length, 1);
+});
+
+test('a name-only upsert merges into the same record across spellings', (t) => {
+  const filePath = tempFile(t);
+  const first = upsertContact(filePath, {
+    name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z'
+  });
+  const second = upsertContact(filePath, {
+    name: '  SARAH  CHEN ', channel: 'email', at: '2026-08-09T10:00:00.000Z'
+  });
+  assert.equal(second.contactId, first.contactId);
+  assert.equal(second.history.length, 2);
+  assert.equal(second.history[1].channel, 'email');
+  assert.equal(readLines(filePath).length, 2); // append-only
+});
+
+test('findPersonByName normalizes case and whitespace and never matches an email-keyed record', (t) => {
+  const filePath = tempFile(t);
+  upsertContact(filePath, { name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z' });
+  upsertContact(filePath, { name: 'Alex Doe', email: 'alex@example.com', channel: 'email', at: '2026-08-02T00:00:00.000Z' });
+  const map = loadContacts(filePath);
+  // Name-only found despite whitespace/case differences.
+  assert.ok(findPersonByName(map, '  sarah   chen '));
+  assert.equal(findPersonByName(map, 'Sarah Chen').name, 'Sarah Chen');
+  // An email-keyed record is a different identity — never resolved by name.
+  assert.equal(findPersonByName(map, 'Alex Doe'), undefined);
+  // Non-matching name.
+  assert.equal(findPersonByName(map, 'Nobody'), undefined);
+});
+
+test('isContactedByNameOnChannel truth table — same channel blocks, others do not', (t) => {
+  const filePath = tempFile(t);
+  const map = loadContacts(filePath);
+  assert.equal(isContactedByNameOnChannel(map, 'Sarah Chen', 'linkedin'), false);
+  assert.equal(isContactedByNameOnChannel(map, 'Sarah Chen', 'email'), false);
+
+  upsertContact(filePath, { name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z' });
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'Sarah Chen', 'linkedin'), true);
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'Sarah Chen', 'email'), false); // cross-channel allowed
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'sarah  chen', 'linkedin'), true); // normalized name
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'Someone Else', 'linkedin'), false);
+});
+
+test('isContactedByNameOnChannel fails closed — blank channel falls back to any-history', (t) => {
+  const filePath = tempFile(t);
+  upsertContact(filePath, { name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z' });
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'Sarah Chen', undefined), true);
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'Sarah Chen', ''), true);
+  assert.equal(isContactedByNameOnChannel(loadContacts(filePath), 'Nobody', undefined), false);
+});
+
+test('markContactedFromBackfill records a name-only contact with source=backfill', (t) => {
+  const filePath = tempFile(t);
+  const record = markContactedFromBackfill(filePath, {
+    name: 'Recruiter', channel: 'phone', at: '2026-08-03T00:00:00.000Z'
+  });
+  assert.match(record.contactId, /^c-n-/);
+  assert.equal(record.email, null);
+  assert.equal(record.history[0].source, 'backfill');
+  assert.equal(record.history[0].channel, 'phone');
 });

@@ -8,6 +8,7 @@ import { resolveColumns, parseTrackerRow } from '../tracker-parse.mjs';
 import {
   loadContacts as loadContactsLedger,
   findPersonByEmail,
+  findPersonByName,
   markContactedFromBackfill
 } from '../path-safety/contacts.mjs';
 
@@ -42,12 +43,17 @@ export function seed() {
   for (const row of readRows(APPS_FILE)) {
     for (const contact of extractContacts(row.notes ?? '')) {
       const email = contact?.email;
-      if (!email) continue; // name-only contacts can't be deduped — skip silently
-      if (findPersonByEmail(ledger, email)) continue; // idempotent
+      const name = contact?.name ?? row.company ?? null;
+      const channel = contact?.channel ?? 'email';
+      // A contact needs an identity (email, or name-only) to be dedupable, and
+      // a channel to be recordable evidence of outreach. Otherwise skip.
+      if ((!email && !name) || !channel) continue;
+      if (email && findPersonByEmail(ledger, email)) continue; // idempotent
+      if (!email && findPersonByName(ledger, name)) continue;  // idempotent (name-only)
       const record = markContactedFromBackfill(CONTACTS_FILE, {
-        name: contact.name ?? row.company ?? null,
+        name,
         email,
-        channel: contact.channel ?? 'email',
+        channel,
         at: row.date ? `${row.date}T00:00:00.000Z` : undefined,
         applicationId: row.num ?? null
       });

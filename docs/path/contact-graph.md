@@ -28,7 +28,7 @@ Append-only JSONL; the last line per `contactId` is authoritative.
 }
 ```
 
-- `contactId` = `c-<sha256(email.trim().toLowerCase()).slice(0,16)>` — deterministic, case-insensitive.
+- `contactId` = `c-<sha256(email.trim().toLowerCase()).slice(0,16)>` — deterministic, case-insensitive. Name-only contacts (no email yet) use a distinct `c-n-<sha256("name:<canonical>").slice(0,16)>` namespace so the two identities can never collide.
 - `source` is one of `dispatch` (send), `backfill` (seed), `manual` (future humanscript).
 - The file is never rewritten in place; repeat contact appends a new merged line with the full growing `history`.
 
@@ -38,10 +38,12 @@ Pure fs + crypto, mirrors `audit-ledger.mjs` discipline.
 
 - `loadContacts(filePath) → Map<contactId, record>` — last line wins; missing file = empty map; corrupt line throws `FAILED_CONTACTS_MALFORMED`.
 - `findPersonByEmail(contacts, email) → record | undefined` — case-insensitive match.
+- `findPersonByName(contacts, name) → record | undefined` — matches **name-only** records (no email) by canonical name (trim, lowercase, collapsed whitespace). A record carrying an email is a different identity and is never resolved by name.
 - `isAlreadyContacted(contacts, email) → boolean` — true iff the person has a non-empty `history` (any channel).
 - `canonicalChannel(channel) → string | undefined` — maps the transport/action vocabulary (`gmail` → `email`) to the ledger's channel vocabulary; unknown channels pass through trimmed lowercased; blank → `undefined`.
 - `isContactedOnChannel(contacts, email, channel) → boolean` — channel-scoped dedup predicate: true iff the person has a prior contact event on that channel. A blank/untold channel fails closed to `isAlreadyContacted` (any history blocks).
-- `upsertContact(filePath, { name, email, channel, at, applicationId, source = 'dispatch' }) → record`
+- `isContactedByNameOnChannel(contacts, name, channel) → boolean` — name-only analog of `isContactedOnChannel` for records with no email; same channel-scoping, same fail-closed blank channel.
+- `upsertContact(filePath, { name, email, channel, at, applicationId, source = 'dispatch' }) → record` — email identity wins when an email is present; otherwise the name path owns the record (name-only).
 - `markContactedFromBackfill(filePath, { name, email, channel, at, applicationId }) → record`
 
 Unit tests: `tests/path-safety/contacts.test.mjs`.
@@ -56,6 +58,7 @@ node scripts/path-dispatch.mjs <packet> <approvals> <dispatches> <audit> --send 
 
 - Absent flag or missing file → the gate behaves exactly as before (no behavior change).
 - Recipient already in the ledger with history **on the packet's intended channel** → status `BLOCKED_ALREADY_CONTACTED` (exit 1); the hard stop lives here, not in the draft. Channel-scoped dedup: a prior **email** blocks an email dispatch but not a fresh LinkedIn touch, and vice versa. The intended channel comes from `packet.action.channel` (transport vocabulary; `gmail` counts as `email`). A packet with no channel fails closed to the old any-history behavior.
+- Name-only dedup: a recipient whose address resolves to **no** email record is also matched by **exact canonical name** against name-only records (no email yet), using the same channel scoping. The email path always decides first — a name-only record never blocks a packet whose address already resolves to a person.
 - A corrupt ledger → `BLOCKED_INVALID_CONTACTS` (exit 1), never silent.
 - On a successful `--send`, the recipient is written back as `{ source: 'dispatch' }` **on the canonical intended channel** (e.g. `email` for a `gmail` packet, `linkedin` for `send_linkedin`). A write-back failure keeps exit 0 `DISPATCHED` but surfaces `contactWriteError` on stdout — the dispatch already happened.
 
@@ -80,6 +83,7 @@ Seeds the ledger idempotently from:
 
 - Re-runnable: second run reports zero deltas.
 - Absent source files are skipped silently (they read as empty, not errors).
+- Name-only contacts (no email) are now seeded too — a name **and** a detected channel are enough; only a mention with neither identity, or an untold channel, is skipped.
 - A corrupt/corrupt `contacts.jsonl` aborts with a non-zero exit before seeding.
 
 ```powershell
@@ -90,7 +94,7 @@ node scripts/contacts-backfill.mjs
 
 - ~~Graph edges (person ↔ companies, roles, timeline)~~ → **SHIPPED**, see below.
 - ~~Channel-scoped dedup (e.g. email-only vs LinkedIn-only re-contact policies)~~ → **SHIPPED**, see Dispatch gate above (`isContactedOnChannel` + canonical write-back).
-- Dedup on name-only contacts (no email yet).
+- ~~Dedup on name-only contacts (no email yet)~~ → **SHIPPED**, see Dispatch gate above (`findPersonByName` + `isContactedByNameOnChannel`; backfill now seeds them). Name-only and email records for the same person stay separate identities — that is the "no email yet" reality.
 
 ## Graph edges (person ↔ companies, roles, timeline)
 

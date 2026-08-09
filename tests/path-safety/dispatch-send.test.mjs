@@ -134,6 +134,17 @@ function priorContactRecord(email = 'hm@example.com', channel = 'email') {
   };
 }
 
+function nameOnlyRecord(name = 'Hiring Manager', channel = 'linkedin') {
+  return {
+    contactId: `c-n-${'0'.repeat(16)}`,
+    name,
+    email: null,
+    channels: [{ channel, address: name, firstSeenAt: '2026-07-29T21:30:00.000Z' }],
+    history: [{ event: 'contacted', at: '2026-07-29T21:30:00.000Z', channel, applicationId: 12, source: 'backfill' }],
+    lastContactedAt: '2026-07-29T21:30:00.000Z'
+  };
+}
+
 test('--send dispatches an approved packet and appends dispatch_completed', () => {
   const packet = makePacket();
   const { result, dispatchPath } = runSendCli(packet);
@@ -302,4 +313,44 @@ test('channel-scoped dedup — writing back a LinkedIn touch then blocks a secon
   const second = runSendCli(makeLinkedinPacket({ finalText: 'Follow-up outreach.' }), { contactsPath });
   assert.equal(second.result.status, 1);
   assert.equal(JSON.parse(second.result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+});
+
+test('name-only dedup — a name-only LinkedIn contact blocks a same-channel dispatch', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [nameOnlyRecord('Hiring Manager', 'linkedin')]);
+  const packet = makeLinkedinPacket(); // recipient.name Hire Manager, channel linkedin
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8'), '');
+});
+
+test('name-only dedup — a name-only LinkedIn contact does NOT block an email dispatch (cross-channel)', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [nameOnlyRecord('Hiring Manager', 'linkedin')]);
+  const packet = makePacket(); // email intent, channel gmail -> email
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8').split(/\r?\n/).filter(Boolean).length, 1);
+});
+
+test('name-only dedup — a different recipient name is not blocked', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [nameOnlyRecord('Someone Else', 'linkedin')]);
+  const packet = makePacket(); // recipient.name = Hiring Manager
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8').split(/\r?\n/).filter(Boolean).length, 1);
+});
+
+test('name-only dedup — write-back records the fresh channel on the name-only person', () => {
+  const dir = tempDir();
+  const contactsPath = makeContactsLedger(dir, [nameOnlyRecord('Hiring Manager', 'linkedin')]);
+  const packet = makeLinkedinPacket(); // same channel — blocked, so nothing dispatched
+  const { result, dispatchPath } = runSendCli(packet, { contactsPath });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
+  assert.equal(fs.readFileSync(dispatchPath, 'utf8').length, 0);
 });

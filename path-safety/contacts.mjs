@@ -22,9 +22,24 @@ function canonicalEmail(email) {
   return String(email).trim().toLowerCase();
 }
 
+// Names are normalized the same way for identity purposes: trimmed,
+// lowercased, internal runs of whitespace collapsed.
+function canonicalName(name) {
+  return String(name).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function contactIdFor(email) {
   return `c-${crypto.createHash('sha256')
     .update(canonicalEmail(email), 'utf8')
+    .digest('hex')
+    .slice(0, 16)}`;
+}
+
+// Name-only identity is a distinct namespace (c-n- prefix) so it can never
+// collide with an email-derived c-<hash> id.
+function contactIdForName(name) {
+  return `c-n-${crypto.createHash('sha256')
+    .update(`name:${canonicalName(name)}`, 'utf8')
     .digest('hex')
     .slice(0, 16)}`;
 }
@@ -59,6 +74,22 @@ export function findPersonByEmail(contacts, email) {
   return undefined;
 }
 
+// Matches only name-only records (records with no email). A record that
+// carries a different email is a different person and is never matched by
+// name — the email path owns that identity.
+export function findPersonByName(contacts, name) {
+  if (!isNonemptyString(name)) return undefined;
+  const needle = canonicalName(name);
+  for (const contact of contacts.values()) {
+    if (!isNonemptyString(contact.email) &&
+        isNonemptyString(contact.name) &&
+        canonicalName(contact.name) === needle) {
+      return contact;
+    }
+  }
+  return undefined;
+}
+
 export function isAlreadyContacted(contacts, email) {
   const person = findPersonByEmail(contacts, email);
   return Array.isArray(person?.history) && person.history.length > 0;
@@ -85,6 +116,19 @@ export function isContactedOnChannel(contacts, email, channel) {
     event && canonicalChannel(event.channel) === needle);
 }
 
+// Name-only dedup predicate: true iff the name-only person has a prior contact
+// event on the intended channel. A blank/untold channel fails closed to the
+// conservative any-history behavior, mirroring isContactedOnChannel.
+export function isContactedByNameOnChannel(contacts, name, channel) {
+  const needle = canonicalChannel(channel);
+  const person = findPersonByName(contacts, name);
+  if (!person) return false;
+  const hasHistory = Array.isArray(person.history) && person.history.length > 0;
+  if (!needle) return hasHistory;
+  return Array.isArray(person.history) && person.history.some((event) =>
+    event && canonicalChannel(event.channel) === needle);
+}
+
 function mergeChannel(channels, { channel, address, firstSeenAt }) {
   if (channels.some((entry) =>
     entry.channel === channel && canonicalEmail(entry.address) === canonicalEmail(address))) {
@@ -95,15 +139,18 @@ function mergeChannel(channels, { channel, address, firstSeenAt }) {
 
 function buildRecord(prior, input) {
   const { name, email, channel, at, applicationId, source } = input;
-  if (!isNonemptyString(email) || !isNonemptyString(channel)) throw codify('FAILED_CONTACTS_SCHEMA');
+  if ((!isNonemptyString(email) && !isNonemptyString(name)) || !isNonemptyString(channel)) {
+    throw codify('FAILED_CONTACTS_SCHEMA');
+  }
   if (!VALID_SOURCES.includes(source)) throw codify('FAILED_CONTACTS_SCHEMA');
   const historyEvent = { event: 'contacted', at, channel, applicationId: applicationId ?? null, source };
   if (!prior) {
+    const identity = isNonemptyString(email) ? { email, address: email } : { name, address: name };
     return {
-      contactId: contactIdFor(email),
+      contactId: isNonemptyString(email) ? contactIdFor(email) : contactIdForName(name),
       name: name ?? null,
-      email,
-      channels: [{ channel, address: email, firstSeenAt: at }],
+      email: email ?? null,
+      channels: [{ channel, address: identity.address, firstSeenAt: at }],
       history: [historyEvent],
       lastContactedAt: at
     };
@@ -111,8 +158,12 @@ function buildRecord(prior, input) {
   return {
     contactId: prior.contactId,
     name: prior.name ?? name ?? null,
-    email: prior.email ?? email,
-    channels: mergeChannel(prior.channels ?? [], { channel, address: email, firstSeenAt: at }),
+    email: prior.email ?? email ?? null,
+    channels: mergeChannel(prior.channels ?? [], {
+      channel,
+      address: isNonemptyString(email) ? email : name,
+      firstSeenAt: at
+    }),
     history: [...(prior.history ?? []), historyEvent],
     lastContactedAt: at
   };
@@ -130,7 +181,11 @@ function appendRecord(filePath, record) {
 export function upsertContact(filePath, { name, email, channel, at, applicationId, source = 'dispatch' } = {}) {
   const atValue = at ?? new Date().toISOString();
   const contacts = loadContacts(filePath);
-  const prior = findPersonByEmail(contacts, email);
+  // Email identity owns a record when an email is present; otherwise the name
+  // path owns it (name-only contacts, no email yet).
+  const prior = isNonemptyString(email)
+    ? findPersonByEmail(contacts, email)
+    : findPersonByName(contacts, name);
   const record = buildRecord(prior, { name, email, channel, at: atValue, applicationId, source });
   appendRecord(filePath, record);
   return record;

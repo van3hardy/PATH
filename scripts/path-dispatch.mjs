@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { verifyAuditLedger } from '../path-safety/audit-ledger.mjs';
-import { loadContacts, isContactedOnChannel, canonicalChannel, upsertContact } from '../path-safety/contacts.mjs';
+import { loadContacts, isContactedOnChannel, isContactedByNameOnChannel, canonicalChannel, upsertContact } from '../path-safety/contacts.mjs';
 import { verifyPacketIntegrity } from '../path-safety/packet-integrity.mjs';
 
 export function evaluateDryRun({ packet, approvals, dispatches, auditPath, contacts, now = new Date() }) {
@@ -30,8 +30,11 @@ export function evaluateDryRun({ packet, approvals, dispatches, auditPath, conta
   // history on the packet's intended channel (e.g. already emailed → email is
   // blocked, but a fresh LinkedIn touch is still a new channel and allowed).
   // An untold channel fails closed to the old any-history behavior.
+  // A recipient with no email record resolves by exact canonical name against
+  // name-only contacts (no email yet); the email path always decides first.
   if (contacts instanceof Map && contacts.size > 0 &&
-      isContactedOnChannel(contacts, packet.recipient.address, packet.action?.channel)) {
+      (isContactedOnChannel(contacts, packet.recipient.address, packet.action?.channel) ||
+       isContactedByNameOnChannel(contacts, packet.recipient.name, packet.action?.channel))) {
     return { status: 'BLOCKED_ALREADY_CONTACTED' };
   }
 
