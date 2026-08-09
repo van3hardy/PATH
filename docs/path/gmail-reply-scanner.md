@@ -38,7 +38,7 @@ gmail-replies:
 ```
 
 - `days_back` — integer; overrides the `--days` CLI flag when set on the config.
-- `blocklist_senders` — domain or bare-address list; **additive** on top of the built-in defaults (e.g. `alerts.linkedin.com`). Domains match by suffix, so `mail.alerts.example.com` any sub-domain of a blocklist entry is skipped.
+- `blocklist_senders` — domain or bare-address list; **additive** on top of the built-in defaults (e.g. `alerts.linkedin.com`). Domains match by suffix, so any sub-domain of a blocklist entry is skipped (e.g. `mail.alerts.example.com` matches entry `alerts.example.com`).
 
 The block carries settings only — the script is invoked directly and never goes through the plugin engine's run lifecycle.
 
