@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   buildListQuery, resolveBlocklist, isBlocklisted, parseMessage,
   getAccessToken, fetchMessageList, fetchMessageDetail,
-  existingIdsFromCandidates, scanReplies,
+  existingIdsFromCandidates, scanReplies, parseArgs,
 } from '../gmail-scan-replies.mjs';
 
 test('buildListQuery renders in:inbox newer_than:Nd', () => {
@@ -150,4 +152,28 @@ test('existingIdsFromCandidates extracts message_ids from candidate arrays', () 
     { message_id: 'a' }, { message_id: 'b' },
   ]);
   assert.deepEqual([...ids].sort(), ['a', 'b']);
+});
+
+test('parseArgs defaults and --days/--dry-run overrides', () => {
+  assert.deepEqual(parseArgs([]), { days: 7, dryRun: false });
+  assert.deepEqual(parseArgs(['--days', '30']), { days: 30, dryRun: false });
+  assert.deepEqual(parseArgs(['--dry-run']), { days: 7, dryRun: true });
+  assert.deepEqual(parseArgs(['--days', '3', '--dry-run']), { days: 3, dryRun: true });
+});
+
+const SCRIPT = fileURLToPath(new URL('../gmail-scan-replies.mjs', import.meta.url));
+
+test('CLI exits non-zero with a clear message when GMAIL_* env is missing', () => {
+  const res = spawnSync(process.execPath, [SCRIPT], {
+    encoding: 'utf-8',
+    env: { ...process.env, GMAIL_CLIENT_ID: '', GMAIL_CLIENT_SECRET: '', GMAIL_REFRESH_TOKEN: '' },
+  });
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr + res.stdout, /GMAIL_/);
+});
+
+test('CLI --help prints usage and exits 0', () => {
+  const res = spawnSync(process.execPath, [SCRIPT, '--help'], { encoding: 'utf-8' });
+  assert.equal(res.status, 0);
+  assert.match(res.stdout, /gmail-scan-replies\.mjs/);
 });

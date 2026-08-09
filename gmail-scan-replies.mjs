@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // @ts-check
-// gmail-scan-replies.mjs â€” read-only Inbox scanner feeding reply-watch.mjs (#1583).
+// gmail-scan-replies.mjs — read-only Inbox scanner feeding reply-watch.mjs (#1583).
 //
 // Turns recent employer replies in the Gmail Inbox into data/reply-candidates.json
-// entries ({ message_id, from, subject, body_snippet, signal: null }) â€” the exact
+// entries ({ message_id, from, subject, body_snippet, signal: null }) — the exact
 // shape reply-watch.mjs consumes. Classification stays in reply-watch.mjs; this
 // script never runs it, never imports tracker-*, and never touches
 // data/applications.md (preserves the HUMAN_REVIEW guarantee).
@@ -16,7 +16,7 @@
 // Usage:
 //   node gmail-scan-replies.mjs [--days N] [--dry-run]
 // Env: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN (same three as
-// gmail-send / plugins/gmail). Config (optional): config/plugins.yml â†’
+// gmail-send / plugins/gmail). Config (optional): config/plugins.yml →
 // plugins.gmail-replies.{days_back, blocklist_senders}.
 
 import { getMessageBody, parseRoleAtCompany } from './plugins/gmail/_helpers.mjs';
@@ -40,7 +40,7 @@ export function buildListQuery({ days }) {
 }
 
 /**
- * Resolve the blocklist: inline defaults âˆª config overlay. Domains are
+ * Resolve the blocklist: inline defaults ∪ config overlay. Domains are
  * lowercased; a bare address ("foo@bar.com") is normalized to its domain.
  * @param {{ cfg?: any }} o
  * @returns {Set<string>}
@@ -231,4 +231,133 @@ export async function scanReplies({
 
   await writeState(new Set([...stateCursor, ...appended]));
   return { scanned, appended, skippedSeen, skippedBlocklisted, skippedErrored };
+}
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CANDIDATES_PATH = process.env.CAREER_OPS_REPLY_CANDIDATES
+  || path.join(__dirname, 'data', 'reply-candidates.json');
+const STATE_PATH = path.join(__dirname, 'data', 'gmail-state.json');
+
+/**
+ * Parse CLI args: [--days N] [--dry-run]. Defaults: days 7, no dry-run.
+ * @param {string[]} argv
+ * @returns {{ days: number, dryRun: boolean }}
+ */
+export function parseArgs(argv) {
+  const daysIdx = argv.indexOf('--days');
+  const days = daysIdx !== -1 && argv[daysIdx + 1]
+    ? Number(argv[daysIdx + 1])
+    : 7;
+  return { days: Number.isInteger(days) && days > 0 ? days : 7, dryRun: argv.includes('--dry-run') };
+}
+
+/** Lazy dotenv load; mirrors scripts/path-dispatch.mjs. Optional package. */
+let dotenvLoaded = false;
+async function loadDotenvOnce() {
+  if (dotenvLoaded) return;
+  dotenvLoaded = true;
+  try {
+    const { config } = await import('dotenv');
+    config();
+  } catch { /* dotenv optional — ambient process.env only */ }
+}
+
+function readCandidatesFile() {
+  if (!fs.existsSync(CANDIDATES_PATH)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(CANDIDATES_PATH, 'utf-8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function readStateFile() {
+  if (!fs.existsSync(STATE_PATH)) return new Set();
+  try {
+    const parsed = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
+    return new Set(parsed.processed_message_ids || []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveStateFile(ids) {
+  fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
+  fs.writeFileSync(STATE_PATH, JSON.stringify({ processed_message_ids: [...ids] }, null, 2), 'utf-8');
+}
+
+function printHelp() {
+  console.log(`gmail-scan-replies.mjs — read-only Inbox scanner feeding reply-watch.mjs (#1583)
+
+Usage:
+  node gmail-scan-replies.mjs [--days N] [--dry-run]
+  node gmail-scan-replies.mjs --help
+
+Scans in:inbox newer_than:Nd, skips blocklisted job-alert senders and messages
+already present in data/reply-candidates.json or the shared data/gmail-state.json
+cursor, and appends the rest as reply-watch candidates (signal stays null).
+
+--dry-run  lists what would be appended without writing anything.
+--days N   look back N days (default 7; config plugins.gmail-replies.days_back overrides).
+
+Env: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN (same three as
+gmail-send / plugins/gmail). Next step after scanning: node reply-watch.mjs`);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) { printHelp(); return; }
+
+  await loadDotenvOnce();
+  const { days: cliDays, dryRun } = parseArgs(args);
+
+  const { loadPluginConfig } = await import('./plugins/_engine.mjs');
+  const cfg = await loadPluginConfig(__dirname);
+  const cfgBlock = cfg?.plugins?.['gmail-replies'] || {};
+  const days = Number.isInteger(cfgBlock.days_back) && cfgBlock.days_back > 0 ? cfgBlock.days_back : cliDays;
+
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) {
+    console.error('gmail-replies: missing GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN in .env');
+    process.exit(1);
+  }
+
+  const existingIds = existingIdsFromCandidates(readCandidatesFile());
+  const stateCursor = readStateFile();
+
+  const { appendCandidate } = await import(pathToFileURL(path.join(__dirname, 'paste-reply.mjs')).href);
+
+  const writeCandidate = dryRun
+    ? async () => {}
+    : async (cand) => { appendCandidate(cand, CANDIDATES_PATH); };
+  const writeState = dryRun
+    ? async () => {}
+    : saveStateFile;
+
+  const result = await scanReplies({
+    credentials: { clientId, clientSecret, refreshToken },
+    cfg, days, existingIds, stateCursor,
+    writeCandidate, writeState,
+  });
+
+  const verb = dryRun ? 'would append' : 'appended';
+  console.log(`\n${verb} ${result.appended.length} new reply candidate(s).`);
+  console.log(`scanned: ${result.scanned}, skipped already-seen: ${result.skippedSeen}, skipped blocklisted: ${result.skippedBlocklisted}, skipped errored: ${result.skippedErrored}`);
+  if (dryRun && result.appended.length > 0) {
+    console.log('Dry run — no files were written. Re-run without --dry-run to append.');
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error('Fatal:', err);
+    process.exit(1);
+  });
 }
