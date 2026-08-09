@@ -32,7 +32,7 @@ test('parseMessage extracts headers + body and sets signal null', () => {
       { name: 'Subject', value: 'Interview invitation' },
     ],
     parts: [{
-      body: { data: Buffer.from('Your first-round interview isâ€¦').toString('base64url') },
+      body: { data: Buffer.from('Your first-round interview is…').toString('base64url') },
     }],
   };
   const cand = parseMessage({ id: 'abc123', payload });
@@ -40,7 +40,7 @@ test('parseMessage extracts headers + body and sets signal null', () => {
     message_id: 'abc123',
     from: 'recruiter@example.com',
     subject: 'Interview invitation',
-    body_snippet: 'Your first-round interview isâ€¦',
+    body_snippet: 'Your first-round interview is…',
     signal: null,
   });
 });
