@@ -32,7 +32,7 @@
 - Consumes: `getMessageBody(payload)`, `parseRoleAtCompany(subject)` from `plugins/gmail/_helpers.mjs` (existing exports).
 - Produces:
   - `buildListQuery({ days })` → `string` — `in:inbox newer_than:{days}d`
-  - `resolveBlocklist({ cfg })` → `Set<string>` — inline defaults ∪ `cfg.plugins?.gmailReplies?.blocklist_senders`; domains lowercased, `@`-prefixed bare addresses normalized to their domain.
+  - `resolveBlocklist({ cfg })` → `Set<string>` — inline defaults ∪ `cfg.plugins?.['gmail-replies']?.blocklist_senders`; domains lowercased, `@`-prefixed bare addresses normalized to their domain.
   - `isBlocklisted(from, blocklist)` → `boolean`
   - `parseMessage({ id, payload })` → `{ message_id, from, subject, body_snippet, signal: null }`
 
@@ -51,7 +51,7 @@ test('buildListQuery renders in:inbox newer_than:Nd', () => {
 });
 
 test('resolveBlocklist unions inline defaults with cfg blocklist_senders', () => {
-  const cfg = { plugins: { gmailReplies: { blocklist_senders: ['Alerts.Example.com'] } } };
+  const cfg = { plugins: { 'gmail-replies': { blocklist_senders: ['Alerts.Example.com'] } } };
   const set = resolveBlocklist({ cfg });
   assert.ok(set.size >= 1, 'inline defaults present');
   assert.ok(set.has('alerts.example.com'), 'config domain lowercased and merged');
@@ -143,7 +143,7 @@ export function buildListQuery({ days }) {
  */
 export function resolveBlocklist({ cfg }) {
   const out = new Set(DEFAULT_BLOCKLIST);
-  const extra = cfg?.plugins?.gmailReplies?.blocklist_senders;
+  const extra = cfg?.plugins?.['gmail-replies']?.blocklist_senders;
   if (Array.isArray(extra)) {
     for (const raw of extra) {
       if (typeof raw !== 'string' || !raw.trim()) continue;
@@ -669,7 +669,7 @@ async function main() {
 
   const { loadPluginConfig } = await import('./plugins/_engine.mjs');
   const cfg = await loadPluginConfig(__dirname);
-  const cfgBlock = cfg?.plugins?.gmailReplies || {};
+  const cfgBlock = cfg?.plugins?.['gmail-replies'] || {};
   const days = Number.isInteger(cfgBlock.days_back) && cfgBlock.days_back > 0 ? cfgBlock.days_back : cliDays;
 
   const clientId = process.env.GMAIL_CLIENT_ID;
@@ -808,5 +808,5 @@ git commit -m "docs(gap-review): mark reply feed scanner shipped (§9)"
 - **Spec coverage:** every spec section maps to a task — architecture (Tasks 1–3), config/env (Tasks 4–5), safety properties (Tasks 3–4: idempotency, per-message resilience, dry-run, no tracker path, fails-soft blocklist), candidate shape (Task 1), testing (Tasks 1–4), risks (DMARC relaxed — noted in Task 1 code header; shared state cursor — Task 3 `scanReplies` union; OAuth duplication — accepted).
 - **Placeholder scan:** no TBD/TODO; every step has concrete code or commands.
 - **Type consistency:** `parseMessage` shape matches `appendCandidate`'s expectations and `reply-watch.mjs`'s `classifyReply` input (`message_id/from/subject/body_snippet/signal`); `scanReplies` result fields match the Task 3 test assertions; `parseArgs` return shape matches the Task 4 test.
-- **Config key naming:** spec and Tasks use `plugins.gmail-replies.days_back` / `blocklist_senders`, consistent with `loadPluginConfig` → `cfg.plugins.<id>` and the `plugins.example.yml` block in Task 5.
+- **Config key naming:** spec and Tasks use `plugins['gmail-replies'].days_back` / `blocklist_senders`, consistent with `loadPluginConfig` → `cfg.plugins.<id>` (bracket access for the hyphenated id) and the `plugins.example.yml` block in Task 5.
 - **`appendCandidate` import:** uses `pathToFileURL(...).href` dynamic import, matching how `paste-reply.mjs` and other repo scripts are imported for direct-use; avoids Node ESM extension issues.
