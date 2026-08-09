@@ -174,6 +174,25 @@ test('successful workflow writes exact local artifacts and returns only the revi
   assert.doesNotMatch(summary.toLowerCase(), /\b(success|sent|dispatched|approved)\b/);
 });
 
+test('run summary flags a recipient already contacted before', async (t) => {
+  const rootDir = makeSandbox(t);
+  fs.mkdirSync(path.join(rootDir, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(rootDir, 'data', 'contacts.jsonl'),
+    JSON.stringify({
+      contactId: 'c-0123456789abcdef',
+      name: 'Hiring Manager',
+      email: 'hiring@example.test',
+      channels: [{ channel: 'email', address: 'hiring@example.test', firstSeenAt: '2026-07-01T09:00:00.000Z' }],
+      history: [{ event: 'contacted', at: '2026-07-01T09:00:00.000Z', channel: 'email', applicationId: 11, source: 'backfill' }],
+      lastContactedAt: '2026-07-01T09:00:00.000Z'
+    }) + '\n', 'utf8');
+
+  const result = await runRecruiterWorkflow(workflowOptions(rootDir));
+  assert.equal(result.status, 'HUMAN_REVIEW'); // advisory only — no block
+  const summary = fs.readFileSync(runPath(rootDir, 'run-summary.md'), 'utf8');
+  assert.match(summary, /Contact history: Already contacted 2026-07-01T09:00:00\.000Z via email\./);
+});
+
 test('run summary accounts for every draft segment on a clean run', async (t) => {
   const rootDir = makeSandbox(t);
   await runRecruiterWorkflow(workflowOptions(rootDir));

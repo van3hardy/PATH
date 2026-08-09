@@ -3,13 +3,16 @@ const PACKET_ID = /^[a-f0-9]{16}$/;
 
 const COUNT_KEYS = ['EVIDENCE', 'REQUEST', 'TEMPLATE', 'UNVERIFIED'];
 
-export function renderRunSummary({ runId, packetId, classification } = {}) {
+export function renderRunSummary({ runId, packetId, classification, contactNote } = {}) {
   if (typeof runId !== 'string' || !RUN_ID.test(runId) ||
       typeof packetId !== 'string' || !PACKET_ID.test(packetId) ||
       !isRecord(classification) || !isRecord(classification.counts) ||
       !COUNT_KEYS.every((key) => Number.isInteger(classification.counts[key]) &&
         classification.counts[key] >= 0) ||
       !Array.isArray(classification.unverified)) {
+    throw codedError('BLOCKED_INVALID_SUMMARY');
+  }
+  if (contactNote != null && typeof contactNote !== 'string') {
     throw codedError('BLOCKED_INVALID_SUMMARY');
   }
 
@@ -29,6 +32,11 @@ export function renderRunSummary({ runId, packetId, classification } = {}) {
 ${classification.unverified.map((text, index) => `${index + 1}. ${JSON.stringify(text)}`).join('\n')}
 `;
 
+  const contactLine = contactNote == null || contactNote.trim().length === 0
+    ? ''
+    : `- Contact history: ${contactNote.trim()}
+`;
+
   return `# Path Recruiter Run ${runId}
 
 - Status: HUMAN_REVIEW
@@ -39,7 +47,7 @@ ${classification.unverified.map((text, index) => `${index + 1}. ${JSON.stringify
 - Safety tier: YELLOW
 ${accounting}
 - External action: NONE — HUMAN REVIEW REQUIRED
-${unverifiedSection}`;
+${contactLine}${unverifiedSection}`;
 }
 
 function isRecord(value) {

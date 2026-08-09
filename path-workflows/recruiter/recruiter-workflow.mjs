@@ -10,6 +10,7 @@ import {
   writeRunArtifact
 } from '../../path-runner/lifecycle.mjs';
 import { gateOutbound, reconcileOutboxAudit } from '../../path-safety/outbound-gate.mjs';
+import { loadContacts, findPersonByEmail } from '../../path-safety/contacts.mjs';
 import { buildClaimReport } from './claim-report.mjs';
 import { validateRecruiterRequest } from './request-boundary.mjs';
 import { renderRunSummary } from './summary-writer.mjs';
@@ -51,6 +52,7 @@ export async function runRecruiterWorkflow(options = {}) {
     runCreated = true;
     writeJsonArtifact(rootDir, runId, 'request.json', request, lifecycleOptions);
     transitionRun({ rootDir, runId, to: 'VALIDATED' }, lifecycleOptions);
+    const contactNote = priorContactNote(rootDir, request.recipient.address);
 
     let selection;
     try {
@@ -161,7 +163,8 @@ export async function runRecruiterWorkflow(options = {}) {
       content: renderRunSummary({
         runId,
         packetId,
-        classification: claimReport.draftClassification
+        classification: claimReport.draftClassification,
+        contactNote
       })
     }, lifecycleOptions);
     transitionRun({ rootDir, runId, to: 'PACKET_QUEUED' }, lifecycleOptions);
@@ -205,10 +208,19 @@ function writeJsonArtifact(rootDir, runId, name, value, options) {
   }, options);
 }
 
+function priorContactNote(rootDir, recipientEmail) {
+  const contacts = loadContacts(dataPaths(rootDir).contactsPath);
+  const person = findPersonByEmail(contacts, recipientEmail);
+  if (!person || !Array.isArray(person.history) || person.history.length === 0) return null;
+  const lastEvent = person.history.at(-1);
+  return `Already contacted ${person.lastContactedAt ?? lastEvent.at} via ${lastEvent.channel ?? 'email'}.`;
+}
+
 function dataPaths(rootDir) {
   return {
     outboxPath: path.join(rootDir, 'data', 'path-outbox.jsonl'),
-    auditPath: path.join(rootDir, 'data', 'path-audit.jsonl')
+    auditPath: path.join(rootDir, 'data', 'path-audit.jsonl'),
+    contactsPath: path.join(rootDir, 'data', 'contacts.jsonl')
   };
 }
 
