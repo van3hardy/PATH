@@ -66,6 +66,7 @@ Read:
 - `config/profile.yml`
 - `cv.md`
 - `article-digest.md` if it exists
+- `modes/_writing.md` — shared writing guidance (Voice DNA guardrail, Writing Style calibration, Professional Writing rules). An application email is candidate-facing prose, the same category that module governs (#2006)
 - `modes/_profile.md` if it exists
 - `modes/_custom.md` if it exists
 - `voice-dna.md` if it exists, for writing style only

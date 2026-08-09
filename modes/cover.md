@@ -36,7 +36,9 @@ Read `cv.md` for:
 
 Read `article-digest.md` if it exists — supplementary proof points and metrics take precedence over cv.md where they overlap.
 
-Read `modes/_profile.md` if it exists — the candidate's personalization file. It captures their target roles, adaptive framing and archetypes, exit narrative, cross-cutting advantage, proof points, comp targets, negotiation scripts, location policy, and any voice or writing-style rules they have added. Its rules **govern the letter's voice and structure and override the generic defaults in this mode**, so the candidate's personalization is never lost.
+Read `modes/_writing.md` — the shared writing guidance (the Voice DNA guardrail, Writing Style calibration, and Professional Writing & ATS rules). A cover letter is candidate-facing prose, the same category that module governs, so it gets the same standard as the report and apply outputs instead of a thinner local one (#2006).
+
+Read `modes/_profile.md` if it exists — the candidate's personalization file. It captures their target roles, adaptive framing and archetypes, exit narrative, cross-cutting advantage, proof points, comp targets, negotiation scripts, location policy, and any voice or writing-style rules they have added. Its rules **govern the letter's voice and structure and override the generic defaults in this mode and in `_writing.md`**, so the candidate's personalization is never lost.
 
 ---
 
