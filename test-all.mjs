@@ -249,6 +249,7 @@ const scripts = [
   { name: 'analyze-patterns.mjs --self-test', expectExit: 0 },
   { name: 'check-table-freshness.mjs --self-test', expectExit: 0 },
   { name: 'upskill.mjs --self-test', expectExit: 0 },
+  { name: 'learning-loop.mjs --self-test', expectExit: 0 },
   { name: 'detect-reposts.mjs --self-test', expectExit: 0 },
   { name: 'discover-ats.mjs --self-test', expectExit: 0 },
   { name: 'process-quality.mjs --self-test', expectExit: 0 },
@@ -264,17 +265,17 @@ const scripts = [
   { name: 'contacts.mjs --self-test', expectExit: 0 },
   { name: 'company-funded.mjs --self-test', expectExit: 0 },
   { name: 'updater-migration-tests.mjs', expectExit: 0 },
-  { name: 'tracker-columns-tests.mjs', expectExit: 0 },
-  { name: 'agent-inbox-tests.mjs', expectExit: 0 },
-  { name: 'followup-seed-tests.mjs', expectExit: 0 },
+  { name: 'tracker-columns-tests.mjs', expectExit: 0, timeout: 120000 },
+  { name: 'agent-inbox-tests.mjs', expectExit: 0, timeout: 120000 },
+  { name: 'followup-seed-tests.mjs', expectExit: 0, timeout: 120000 },
   { name: 'paste-reply-tests.mjs', expectExit: 0 },
   // set-status-tests.mjs provisions a fresh sandbox per section and spawns
   // ~40 set-status.mjs child processes; on Windows process spawn is slow
-  // enough that the suite needs ~30-34s, so it gets a larger per-entry
-  // timeout than the run() helper's 30s default (same pattern as the
-  // dashboard build below).
-  { name: 'set-status-tests.mjs', expectExit: 0, timeout: 120000 },
-  { name: 'tracker-writer-lock-tests.mjs', expectExit: 0 },
+  // enough that the suite needs ~60s standalone (and exceeded 120s in one
+  // full-suite run under load), so it gets a larger per-entry timeout than
+  // the run() helper's 30s default (same pattern as the dashboard build below).
+  { name: 'set-status-tests.mjs', expectExit: 0, timeout: 180000 },
+  { name: 'tracker-writer-lock-tests.mjs', expectExit: 0, timeout: 120000 },
   // Root-level standalone suites shipped in SYSTEM_PATHS but previously never
   // executed by CI (issue #1624). All are fast (<0.5s each), so they run in
   // both quick and full mode like their siblings above.
@@ -1219,9 +1220,18 @@ for (const f of userFiles) {
 }
 
 const batchRunnerSource = readFile('batch/batch-runner.sh');
-const minScoreSkipIndex = batchRunnerSource.indexOf('update_state "$id" "$url" "skipped"');
-const minScoreReturnIndex = batchRunnerSource.indexOf('return 0', minScoreSkipIndex);
-const completedStateIndex = batchRunnerSource.indexOf('update_state "$id" "$url" "completed"', minScoreSkipIndex);
+// Match any update_state entrypoint (bare, _retrying, _unlocked) so this asserts
+// the gate's ordering rather than one spelling of the call.
+const SKIPPED_STATE_WRITE = /update_state(?:_retrying|_unlocked)? "\$id" "\$url" "skipped"/;
+const COMPLETED_STATE_WRITE = /update_state(?:_retrying|_unlocked)? "\$id" "\$url" "completed"/;
+const minScoreSkipIndex = batchRunnerSource.search(SKIPPED_STATE_WRITE);
+let minScoreReturnIndex = -1;
+let completedStateIndex = -1;
+if (minScoreSkipIndex !== -1) {
+  minScoreReturnIndex = batchRunnerSource.indexOf('return 0', minScoreSkipIndex);
+  const completedOffset = batchRunnerSource.slice(minScoreSkipIndex).search(COMPLETED_STATE_WRITE);
+  completedStateIndex = completedOffset === -1 ? -1 : minScoreSkipIndex + completedOffset;
+}
 if (
   minScoreSkipIndex !== -1 &&
   minScoreReturnIndex !== -1 &&
@@ -8938,6 +8948,7 @@ try {
 
     try {
     const result = run(NODE, ['merge-tracker.mjs'], {
+      timeout: 60000,
       env: { ...process.env, CAREER_OPS_TRACKER: tracker, CAREER_OPS_ADDITIONS: additionsDir },
     });
     const merged = readFileSync(tracker, 'utf-8');

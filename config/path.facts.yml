@@ -11,3 +11,28 @@ facts:
     source: user-provided Path requirements
     source_date: 2026-07-23
     approved: true
+  - id: van-career-16-years-operations
+    text: Van has 16 years of experience in high-volume fulfillment and distribution environments.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-amazon-operations-lead
+    text: Van works at Amazon.com Services LLC as Operations Lead (Process Assistant) since August 2018.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-availability-improvement
+    text: Van improved automated area availability from 95% to 98% by standardizing response routines and escalation paths.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-154-courses
+    text: Van completed 154+ training courses and certifications in operations, safety, and standard work.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-multisite-ma-fl-nh-ks
+    text: Van has multi-site operations experience across Massachusetts, Florida, New Hampshire, and Kansas.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true

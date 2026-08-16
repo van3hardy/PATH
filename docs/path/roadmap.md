@@ -40,11 +40,11 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 
 | # | Item | Evidence it's needed | Status |
 |---|---|---|---|
-| 0.1 | Create `modes/discover.md` | Breaks the mode-integrity gate in `test-all.mjs` (~line 1918) + web `/api/explore/ai` returns `MODE_MISSING` | ⬜ |
-| 0.2 | Create `interview-prep/story-bank.md` | Required by `match-star.mjs`, `modes/_shared.md`, `path-memory/evidence-selector.mjs` | ⬜ |
-| 0.3 | Create `config/cv-facts.json` | Only `.example` exists; `verify-cv-facts.mjs` defaults to it | ⬜ |
-| 0.4 | Create the 10 missing `.mjs` scripts referenced by `test-all.mjs` | `MODULE_NOT_FOUND` crashes: `check-table-freshness`, `discover-ats`, `company-history`, `weekly-digest`, `contacts`, `discover-ats.test`, `company-history.test`, `contacts.test`, `validate-untrusted-content-coverage`, `seed-fixture` | ⬜ |
-| 0.5 | (Optional) Update career-ops v1.22.0 → v1.26.0 | `node update-system.mjs check` reports update available; user data untouched | ⬜ |
+| 0.1 | Create `modes/discover.md` | Breaks the mode-integrity gate in `test-all.mjs` (~line 1918) + web `/api/explore/ai` returns `MODE_MISSING` | ✅ |
+| 0.2 | Create `interview-prep/story-bank.md` | Required by `match-star.mjs`, `modes/_shared.md`, `path-memory/evidence-selector.mjs` | ⬜ (optional user-layer file, not suite-gated) |
+| 0.3 | Create `config/cv-facts.json` | Only `.example` exists; `verify-cv-facts.mjs` defaults to it | ⬜ (optional user-layer file, not suite-gated) |
+| 0.4 | Create the 10 missing `.mjs` scripts referenced by `test-all.mjs` | `MODULE_NOT_FOUND` crashes: `check-table-freshness`, `discover-ats`, `company-history`, `weekly-digest`, `contacts`, `discover-ats.test`, `company-history.test`, `contacts.test`, `validate-untrusted-content-coverage`, `seed-fixture` | ✅ |
+| 0.5 | (Optional) Update career-ops v1.22.0 → v1.26.0 | `node update-system.mjs check` reports update available; user data untouched | ✅ v1.26.0 |
 
 **Skill gate:** `build-fix` → `verification-before-completion`.
 **Exit criterion:** `node test-all.mjs` passes end-to-end.
@@ -57,9 +57,9 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 
 | # | Subsystem | Work | Design exists? | Status |
 |---|---|---|---|---|
-| 1.1 | Contact graph (#5) | Name-only dedup (last unbuilt piece of the ledger) | `2026-08-09-name-only-dedup-design.md` | 🟡 in-flight |
-| 1.2 | Career truth store (#3) | Populate approved-fact store (currently 2 facts); wire external verification into `verify-cv-facts.mjs` | — | ⬜ |
-| 1.3 | Learning loop (#10) | Close the loop: `analyze-patterns.mjs`/`stats.mjs` analytics → feedback into graph/brain/strategy | — | ⬜ |
+| 1.1 | Contact graph (#5) | Name-only dedup (last unbuilt piece of the ledger) — `findPersonByName` + `isContactedByNameOnChannel` + distinct `c-n-` identity namespace + backfill seeds name+channel records; gate consults name path after email path; tests + docs updated | `2026-08-09-name-only-dedup-design.md` | ✅ |
+| 1.2 | Career truth store (#3) | Populate approved-fact store (currently 2 facts); wire external verification into `verify-cv-facts.mjs` | `2026-08-14-career-truth-store-design.md` | ✅ |
+| 1.3 | Learning loop (#10) | Close the loop: `analyze-patterns.mjs`/`stats.mjs` analytics → feedback into graph/brain/strategy | `2026-08-14-learning-loop-design.md` | ✅ |
 
 **Skill gate:** per item: `brainstorming` → `da`/`dave` on design → `writing-plans` → `subagent-driven-development` → `checkpoint` per task → `verification-before-completion`.
 **Exit criterion:** each item's plan file ticked, `node test-all.mjs` green, `.disciplined-work` gate passed.
@@ -116,7 +116,7 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 - **User layer vs system layer.** Customization → `modes/_profile.md`, `config/profile.yml`, `modes/_custom.md`. Never `modes/_shared.md`.
 - **Ethics.** Below-4.0/5 fit → recommend against applying. Never submit without human review.
 - **Pipeline integrity.** Tracker additions via `batch/tracker-additions/*.tsv` + `merge-tracker.mjs`. Status changes via `set-status.mjs`.
-- **Verification.** Every phase ends with `node test-all.mjs` + `.disciplined-work/run_gate.py` before "done" is claimed.
+- **Verification.** Every phase ends with `node test-all.mjs` + `.disciplined-work/run_gate.py` before "done" is claimed. **Note (2026-08-14):** `.disciplined-work/run_gate.py` does not exist and never was committed (`git log --all -- .disciplined-work/` empty; the AGENTS.md marker is a plugin injection). Until the gate is created, phases 1.2/1.3 record the full test-all suite + targeted suites as the standing-in evidence (variance documented in each plan file).
 
 ---
 

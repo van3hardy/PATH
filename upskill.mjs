@@ -24,7 +24,7 @@
 
 import { readFileSync, existsSync, realpathSync, writeFileSync, symlinkSync, rmSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { load as yamlLoad } from 'js-yaml';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 
@@ -528,6 +528,7 @@ soft_gaps:
 
 // --- CLI ---
 // --- CLI ---
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
 const args = process.argv.slice(2);
 if (args.includes('--self-test')) runSelfTest();
 
@@ -681,4 +682,5 @@ if (urlTextIdx !== -1 || directUrl) {
   } else {
     console.log(JSON.stringify(result, null, 2));
   }
+}
 }
