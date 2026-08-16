@@ -2,11 +2,11 @@
 // Imports directly from contact-graph.mjs (the single source of truth) so the
 // test and production code can never drift out of sync.
 //
-// Run:  node --test web/test-contact-graph.mjs
+// Run:  node --test tests/lib/contact-graph.test.mjs
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePathContacts, buildContactGraph } from "./src/lib/contact-graph.mjs";
+import { parsePathContacts, buildContactGraph } from "../../src/lib/contact-graph.mjs";
 
 const aLine = JSON.stringify({
   contactId: "c-aaa",

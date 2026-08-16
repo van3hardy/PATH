@@ -57,9 +57,9 @@ From `config/cv-facts.example.json` schema, with real values:
 
 ## Exit criteria
 
-- [ ] `config/path.facts.yml` holds the career facts, all `approved: true`.
-- [ ] `config/cv-facts.json` exists with real values.
-- [ ] `verify-cv-facts.mjs --facts` honors the store; missing store = no change.
-- [ ] New test file green + self-test green.
-- [ ] gap-review #3 + roadmap 1.2 updated.
-- [ ] `node test-all.mjs` green.
+- [x] `config/path.facts.yml` holds the career facts, all `approved: true`. (verified 2026-08-15: 5 career facts, all `approved: true`)
+- [x] `config/cv-facts.json` exists with real values. (verified 2026-08-15)
+- [x] `verify-cv-facts.mjs --facts` honors the store; missing store = no change. (verified: `tests/path-safety/verify-cv-facts-facts.test.mjs` green)
+- [x] New test file green + self-test green.
+- [x] gap-review #3 + roadmap 1.2 updated.
+- [x] `node test-all.mjs` green. *(verified 2026-08-15: full detached run 3472 passed / 0 failed / 1 pre-existing environmental warning — symlink EPERM skip)*

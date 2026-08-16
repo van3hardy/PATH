@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(__dirname, "../../../../");
 process.env.CAREER_OPS_ROOT = ROOT;
 
 import {
@@ -16,7 +16,7 @@ import {
   recordTerminalReceipt,
   authorizeDirectUiGesture,
   getReceiptPath,
-} from "./src/lib/server/capability-gateway.ts";
+} from "../../../src/lib/server/capability-gateway.ts";
 
 function tempReceiptPath() {
   const dir = mkdtempSync(path.join(tmpdir(), "path-web-receipts-"));

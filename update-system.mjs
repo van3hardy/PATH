@@ -358,6 +358,16 @@ const SYSTEM_PATHS = [
   'seed-fixture.mjs',
   'test-fixtures/',
   'upgrade-tests.mjs',
+  'desktop/',
+  'gmail-scan-replies.mjs',
+  'learning-loop.mjs',
+  'path-brain/',
+  'path-memory/',
+  'path-runner/',
+  'path-safety/',
+  'path-workflows/',
+  'scripts/',
+  'transports/',
 ];
 
 const BOOTSTRAP_PATHS = [
@@ -419,6 +429,8 @@ export const USER_PATHS = [
   'opencode.json',
   '.claude/settings.json',
   '.claude/hooks/',
+  'config/path.autonomy.yml',
+  'config/path.facts.yml',
 ];
 
 function parseVersionFile(raw) {

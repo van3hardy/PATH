@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 
-import { actionExists, dispatch } from "./src/app/actions/registry.ts";
+import { actionExists, dispatch } from "../../../src/app/actions/registry.ts";
 
 function makeCtx({ inbox = [], applications = [], existingJobs = new Map() } = {}) {
   const effects = [];
@@ -198,7 +198,7 @@ test("unknown and prohibited action IDs fail closed without effects", () => {
 });
 
 test("driveSession has no submit action path (never-submit by construction)", () => {
-  const src = readFileSync(new URL("./src/lib/apply/drive.ts", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../../../src/lib/apply/drive.ts", import.meta.url), "utf8");
   // The action grammar the planner is allowed to emit offers no submit action.
   const start = src.indexOf('{"action":"click"');
   const end = src.indexOf('Page: "', start);

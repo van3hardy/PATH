@@ -2,11 +2,11 @@
 // Imports directly from run-cover-prompt.mjs (the single source of truth) so the
 // test and production code can never drift out of sync.
 //
-// Run:  node --test web/test-run-cover-prompt.mjs
+// Run:  node --test tests/lib/run-cover-prompt.test.mjs
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCoverPrompt } from "./src/lib/run-cover-prompt.mjs";
+import { buildCoverPrompt } from "../../src/lib/run-cover-prompt.mjs";
 
 const ctx = { report: "042", company: "Example Corp", role: "Ops Manager", today: "2026-08-09" };
 
