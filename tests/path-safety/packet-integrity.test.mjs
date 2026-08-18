@@ -119,3 +119,25 @@ test('packet structure enforces every locked integrity binding', () => {
     }), { ok: false, code: 'BLOCKED_INVALID_PACKET' }, name);
   }
 });
+
+test('real provider packet with a non-empty model passes integrity', () => {
+  const packet = makePacket({
+    provider: 'gemini',
+    model: 'gemini-3.6-flash'
+  });
+  assert.deepEqual(verifyPacketIntegrity(packet, { now: new Date('2026-07-29T13:00:00Z') }), {
+    ok: true,
+    code: 'INTEGRITY_OK'
+  });
+});
+
+test('real provider packet with an empty model is structurally invalid', () => {
+  const packet = makePacket({
+    provider: 'gemini',
+    model: ''
+  });
+  assert.deepEqual(verifyPacketIntegrity(packet, { now: new Date('2026-07-29T13:00:00Z') }), {
+    ok: false,
+    code: 'BLOCKED_INVALID_PACKET'
+  });
+});

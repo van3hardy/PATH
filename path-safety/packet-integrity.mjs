@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { REAL_PROVIDER_IDS } from '../path-brain/provider-ids.mjs';
 
 const HEX_16 = /^[a-f0-9]{16}$/;
 const HEX_24 = /^[a-f0-9]{24}$/;
@@ -10,6 +11,11 @@ const PROMPT_VERSION = 'path-recruiter-v1';
 const PROVIDER = 'fake';
 const MODEL = 'deterministic-recruiter-template-v1';
 const PACKET_TTL_MS = 24 * 60 * 60 * 1000;
+
+function hasValidProviderModel(provider, model) {
+  if (provider === PROVIDER && model === MODEL) return true;
+  return REAL_PROVIDER_IDS.includes(provider) && isNonemptyString(model);
+}
 
 export function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -84,8 +90,7 @@ function hasValidPacketStructure(packet) {
       packet.disclosureIncluded !== true ||
       packet.policyVersion !== POLICY_VERSION ||
       packet.promptVersion !== PROMPT_VERSION ||
-      packet.provider !== PROVIDER ||
-      packet.model !== MODEL ||
+      !hasValidProviderModel(packet.provider, packet.model) ||
       !HEX_16.test(packet.id) ||
       !HEX_64.test(packet.integritySha256) ||
       !HEX_24.test(packet.idempotencyKey)) {

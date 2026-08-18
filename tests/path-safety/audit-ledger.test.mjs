@@ -175,7 +175,8 @@ test('appendAuditRecord rejects incomplete and invented records before write', (
       action: { type: 'send_email', channel: 'email', touch: 'first' }
     })],
     ['packet event null final text', auditRecord({ finalText: null })],
-    ['no-model provider on packet event', auditRecord({ provider: 'none', model: 'none' })]
+    ['no-model provider on packet event', auditRecord({ provider: 'none', model: 'none' })],
+    ['real provider without a model', auditRecord({ provider: 'gemini', model: '' })]
   ];
 
   for (const [name, record] of invalid) {
@@ -185,6 +186,19 @@ test('appendAuditRecord rejects incomplete and invented records before write', (
     }, name);
     assert.equal(fs.existsSync(auditPath), false, name);
   }
+});
+
+test('real provider audit records with a non-empty model are accepted', () => {
+  const auditPath = tempAuditPath();
+  const record = appendAuditRecord(auditPath, auditRecord({
+    provider: 'gemini',
+    model: 'gemini-3.6-flash'
+  }), { now: () => new Date('2026-07-29T12:00:00.000Z') });
+  assert.equal(record.provider, 'gemini');
+  assert.equal(record.model, 'gemini-3.6-flash');
+  const verification = verifyAuditLedger(auditPath);
+  assert.equal(verification.ok, true, verification.code);
+  assert.equal(verification.recordCount, 1);
 });
 
 test('unsupported diagnostic explicitly carries null packet bindings and no-model versions', () => {

@@ -1,3 +1,5 @@
+import { PROVIDER_IDS } from '../../path-brain/provider-ids.mjs';
+
 const REQUEST_SCHEMA = 'path.recruiter.request.v1';
 const OBJECTIVE = 'draft_first_touch';
 const PROMPT_VERSION = 'path-recruiter-v1';
@@ -73,7 +75,7 @@ export function validateRecruiterRequest(raw, { now, idFactory } = {}) {
   if (raw.promptVersion !== PROMPT_VERSION) details.push('promptVersion');
   if (raw.voiceProfile !== VOICE_PROFILE) details.push('voiceProfile');
   if (raw.disclosurePolicy !== DISCLOSURE_POLICY) details.push('disclosurePolicy');
-  if (raw.provider !== 'fake' && raw.provider !== 'none') details.push('provider');
+  if (!PROVIDER_IDS.includes(raw.provider)) details.push('provider');
 
   const requestApproval = validateRequestApproval(raw.requestApproval, current, details);
   const evidenceRefs = validateEvidenceRefs(raw.evidenceRefs, current, details);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sha256Hex, stableStringify, verifyPacketIntegrity } from './packet-integrity.mjs';
+import { REAL_PROVIDER_IDS } from '../path-brain/provider-ids.mjs';
 
 const REQUIRED_FIELDS = [
   'schemaVersion', 'timestamp', 'event', 'runId', 'packetId', 'integritySha256',
@@ -111,6 +112,7 @@ function hasValidAuditFacts(entry) {
       !(entry.runId === null || isNonemptyString(entry.runId))) return false;
 
   if (entry.provider === LOCKED_PROVIDER && entry.model === LOCKED_MODEL) return true;
+  if (REAL_PROVIDER_IDS.includes(entry.provider) && isNonemptyString(entry.model)) return true;
   return diagnostic && entry.provider === 'none' && entry.model === 'none';
 }
 

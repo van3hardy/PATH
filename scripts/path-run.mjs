@@ -3,10 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { getProvider, REAL_PROVIDER_IDS } from '../path-brain/provider-registry.mjs';
+import { DEFAULT_MODEL, PROVIDER_IDS } from '../path-brain/provider-ids.mjs';
+
 const USAGE = [
   'Usage: node scripts/path-run.mjs <request.json> --local-only',
   'MVP-1 writes a local review packet and never sends or submits.'
 ].join('\n');
+const BRAIN_TIMEOUT_REAL_MS = 60 * 1000;
+const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
 
 async function main(args) {
   if (args.length !== 2 || !args[0] || args[0].startsWith('--') ||
@@ -40,21 +45,26 @@ async function main(args) {
     return 2;
   }
 
-  if (rawRequest?.provider !== 'fake' && rawRequest?.provider !== 'none') {
+  if (!PROVIDER_IDS.includes(rawRequest?.provider)) {
     console.error('BLOCKED_UNSUPPORTED_PROVIDER');
     return 2;
   }
 
   let runRecruiterWorkflow;
-  let providerModule;
+  let provider;
+  let brainTimeoutMs = 5000;
   try {
-    [{ runRecruiterWorkflow }, providerModule] = await Promise.all([
-      import(new URL('../path-workflows/recruiter/recruiter-workflow.mjs', import.meta.url)),
-      rawRequest.provider === 'fake'
-        ? import(new URL('../path-brain/fake-provider.mjs', import.meta.url))
-        : import(new URL('../path-brain/no-model-provider.mjs', import.meta.url))
-    ]);
-  } catch {
+    const workflowModule = await import(
+      new URL('../path-workflows/recruiter/recruiter-workflow.mjs', import.meta.url)
+    );
+    runRecruiterWorkflow = workflowModule.runRecruiterWorkflow;
+    provider = await resolveProvider(rawRequest, rootDir);
+    if (REAL_PROVIDER_IDS.includes(rawRequest.provider)) brainTimeoutMs = BRAIN_TIMEOUT_REAL_MS;
+  } catch (error) {
+    if (error?.code === 'BLOCKED_UNSUPPORTED_PROVIDER') {
+      console.error('BLOCKED_UNSUPPORTED_PROVIDER');
+      return 2;
+    }
     console.error('FAILED_CLI');
     return 1;
   }
@@ -67,10 +77,12 @@ async function main(args) {
   }
 
   try {
-    const provider = rawRequest.provider === 'fake'
-      ? providerModule.fakeProvider
-      : providerModule.noModelProvider;
-    const result = await runRecruiterWorkflow({ rootDir, rawRequest, provider });
+    const result = await runRecruiterWorkflow({
+      rootDir,
+      rawRequest,
+      provider,
+      brainTimeoutMs
+    });
     console.log(JSON.stringify(result, null, 2));
     if (result?.resultCode === 'LOCAL_REVIEW_READY' && result?.status === 'HUMAN_REVIEW') {
       return 0;
@@ -81,6 +93,59 @@ async function main(args) {
     console.error('FAILED_CLI');
     return 1;
   }
+}
+
+async function resolveProvider(rawRequest, rootDir) {
+  const providerId = rawRequest.provider;
+  if (!REAL_PROVIDER_IDS.includes(providerId)) {
+    return getProvider(providerId);
+  }
+  const model = typeof process.env.GEMINI_MODEL === 'string' &&
+    process.env.GEMINI_MODEL.trim().length > 0
+    ? process.env.GEMINI_MODEL.trim()
+    : DEFAULT_MODEL;
+  const objective = rawRequest.objective ?? 'draft_first_touch';
+  const runId = typeof rawRequest.runId === 'string' ? rawRequest.runId : null;
+
+  const [{ createCapabilityApprovalAuthority, buildCapabilityIntent, approveCapability },
+    { createJsonlReceiptSink }] = await Promise.all([
+    import(new URL('../path-safety/capability-gateway.mjs', import.meta.url)),
+    import(new URL('../path-safety/capability-receipts.mjs', import.meta.url))
+  ]);
+
+  const approvalAuthority = createCapabilityApprovalAuthority();
+  const receiptSink = createJsonlReceiptSink(
+    path.join(rootDir, 'data', 'path-capability-receipts.jsonl')
+  );
+
+  const intent = buildCapabilityIntent({
+    capabilityId: 'model.invoke',
+    actor: 'system',
+    metadata: { runId, provider: providerId, model, objective },
+    resources: [{ type: 'model', id: providerId }],
+    approval: null
+  });
+
+  let approval = null;
+  if (isRecord(rawRequest.requestApproval) &&
+      typeof rawRequest.requestApproval.approvedAt === 'string') {
+    approval = approveCapability(intent, {
+      authority: approvalAuthority,
+      source: 'human',
+      approvedBy: 'Van',
+      now: new Date(rawRequest.requestApproval.approvedAt),
+      ttlMs: APPROVAL_TTL_MS
+    });
+  }
+
+  return getProvider(providerId, {
+    model,
+    runId,
+    objective,
+    approvalAuthority,
+    approval,
+    receiptSink
+  });
 }
 
 function verifyPathRoot() {
@@ -135,6 +200,10 @@ function snapshotEntry(target, type) {
   const validType = type === 'directory' ? info.isDirectory() : info.isFile();
   if (info.isSymbolicLink() || !validType) throw new Error('invalid identity entry');
   return { target, type, real: fs.realpathSync(target), info };
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function revalidatePathIdentity(identity) {

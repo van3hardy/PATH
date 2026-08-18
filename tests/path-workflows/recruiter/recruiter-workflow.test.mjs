@@ -8,9 +8,17 @@ import test from 'node:test';
 
 import { fakeProvider } from '../../../path-brain/fake-provider.mjs';
 import { noModelProvider } from '../../../path-brain/no-model-provider.mjs';
+import { getProvider } from '../../../path-brain/provider-registry.mjs';
 import { createRun } from '../../../path-runner/lifecycle.mjs';
 import { appendAuditRecord } from '../../../path-safety/audit-ledger.mjs';
+import {
+  approveCapability,
+  buildCapabilityIntent,
+  createCapabilityApprovalAuthority
+} from '../../../path-safety/capability-gateway.mjs';
+import { createJsonlReceiptSink } from '../../../path-safety/capability-receipts.mjs';
 import { gateOutbound } from '../../../path-safety/outbound-gate.mjs';
+import { verifyPacketIntegrity } from '../../../path-safety/packet-integrity.mjs';
 import { runRecruiterWorkflow } from '../../../path-workflows/recruiter/recruiter-workflow.mjs';
 
 // Must track the real clock: packets expire 24h after createdAt, and the
@@ -480,5 +488,95 @@ test('transport, send, browser, and connector dependencies are rejected at every
       assert.equal(fs.existsSync(path.join(rootDir, 'data')), false,
         `${nested ? 'gateOptions.' : ''}${dependencyName}`);
     }
+  }
+});
+
+// End-to-end real-provider path: a gemini provider obtained from the provider
+// registry, running under the capability gateway (minted human approval +
+// receipt sink), flows through runBrain → gateOutbound with a real provider
+// identity. packet-integrity must accept provider:'gemini' + a non-empty model
+// (the real-provider relaxation), and audit records written with those facts
+// must pass hasValidAuditFacts. The transport is mocked; nothing leaves the box.
+test('gemini provider via registry runs the workflow under the gateway', async (t) => {
+  const rootDir = makeSandbox(t);
+  const model = 'gemini-3.6-flash';
+  const runId = 'run-test-001';
+  const objective = 'draft_first_touch';
+
+  const authority = createCapabilityApprovalAuthority();
+  const approvalTime = new Date();
+  const intent = buildCapabilityIntent({
+    capabilityId: 'model.invoke',
+    actor: 'system',
+    metadata: { runId, provider: 'gemini', model, objective },
+    resources: [{ type: 'model', id: 'gemini' }],
+    approval: null
+  });
+  const approval = approveCapability(intent, {
+    authority,
+    source: 'human',
+    approvedBy: 'Van',
+    now: approvalTime,
+    ttlMs: 24 * 60 * 60 * 1000
+  });
+  const receiptSink = createJsonlReceiptSink(
+    path.join(rootDir, 'data', 'path-capability-receipts.jsonl'));
+
+  let transportCalls = 0;
+  const provider = await getProvider('gemini', {
+    model,
+    runId,
+    objective,
+    approvalAuthority: authority,
+    approval,
+    receiptSink,
+    transport: async ({ model: requestedModel, prompt }) => {
+      transportCalls += 1;
+      assert.equal(requestedModel, model);
+      assert.match(prompt, new RegExp(CLAIM.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      return {
+        text: `${CLAIM}\n\nBest,\nVan\nPrepared with Path, Van's AI recruiting assistant.`
+      };
+    }
+  });
+
+  const result = await runRecruiterWorkflow(
+    workflowOptions(rootDir, { provider, brainTimeoutMs: 60_000 }));
+
+  assert.equal(transportCalls, 1);
+  assert.deepEqual(result, {
+    status: 'HUMAN_REVIEW',
+    resultCode: 'LOCAL_REVIEW_READY',
+    decision: 'QUEUE_FOR_APPROVAL',
+    packetId: result.packetId,
+    runId
+  });
+  assert.match(result.packetId, /^[a-f0-9]{16}$/);
+  const draft = fs.readFileSync(runPath(rootDir, 'draft.md'), 'utf8');
+  assert.ok(draft.includes(CLAIM));
+
+  const outbox = fs.readFileSync(dataPath(rootDir, 'path-outbox.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  assert.equal(outbox.length, 1);
+  assert.equal(outbox[0].provider, 'gemini');
+  assert.equal(outbox[0].model, model);
+  assert.equal(outbox[0].tier, 'YELLOW');
+  assert.equal(verifyPacketIntegrity(outbox[0], { now: approvalTime }).ok, true);
+
+  const audit = fs.readFileSync(dataPath(rootDir, 'path-audit.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  assert.ok(audit.length >= 1);
+  for (const entry of audit) {
+    assert.equal(entry.provider, 'gemini');
+    assert.equal(entry.model, model);
+  }
+
+  const receipts = fs.readFileSync(dataPath(rootDir, 'path-capability-receipts.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  const events = receipts.map((record) => record.event);
+  assert.ok(events.includes('capability_attempted'));
+  assert.ok(events.includes('capability_succeeded'));
+  for (const record of receipts) {
+    assert.equal(record.capabilityId, 'model.invoke');
   }
 });

@@ -110,6 +110,13 @@ test('provider none is accepted without changing the locked request shape', () =
   assert.equal(result.createdAt, '2026-07-29T09:00:00.000Z');
 });
 
+test('provider gemini is accepted as a real provider id', () => {
+  const raw = validRequest();
+  raw.provider = 'gemini';
+  const result = validate(raw);
+  assert.equal(result.provider, 'gemini');
+});
+
 const invalidCases = [
   ['missing recipient', (raw) => { delete raw.recipient; }, 'recipient'],
   ['empty recipient name', (raw) => { raw.recipient.name = ' '; }, 'recipient.name'],

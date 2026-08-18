@@ -48,7 +48,7 @@
 | 6 | **Communications hub** | ❌ | Outbox + approval gate exist; **no transport/send channel.** `scripts/path-dispatch.mjs` dry-run only. |
 | 7 | **Opportunity CRM** | ✅ | `applications.mjs` tracker, `tracker*.mjs`, `followup-cadence`, `reply-watch`, `agent-inbox`. |
 | 8 | **Approval / policy engine** | ✅ | `path-safety/{policy,outbound-gate,capability-gateway,approval-packet,audit-ledger}.mjs`, `config/path.autonomy.yml`. |
-| 9 | **PATH Brain** | ❌ | `path-brain/` scaffold: schemas (`contract.mjs`) + `fake-provider.mjs` + `no-model-provider.mjs`. **No real model provider wired.** `path-run.mjs` forces `fake`/`none`. |
+| 9 | **PATH Brain** | ✅ | `path-brain/` schemas (`contract.mjs`) + `provider-ids.mjs` + `provider-registry.mjs` + `gemini-provider.mjs` (real model provider) + `fake-provider.mjs` + `no-model-provider.mjs`. `path-run.mjs` routes real providers through the capability gateway (`model.invoke`, receipts) with `brainTimeoutMs`; `fake`/`none` are explicit opt-in. |
 | 10 | **Learning loop** | ✅ | `learning-loop.mjs` (roadmap 1.3) aggregates funnel/velocity/calibration/waiting, skill gaps, and verbatim outcome feedback into one schema-versioned `data/learning-feedback.json`; empty-safe, never fabricates. Built on `analyze-patterns.mjs`, `upskill.mjs`, `outcome.mjs`, `stats.mjs`, `funnel-velocity.mjs`. |
 
 ---
@@ -97,7 +97,7 @@ The `desktop/` Electron shell wraps the same `web/` Next.js app and launches it 
 3. **`config/cv-facts.json` missing** (only `.example`) — `verify-cv-facts.mjs` defaults to it. **RESOLVED** — real `config/cv-facts.json` created (empty allow-lists, standard forbidden/warn phrases); `verify-cv-facts.mjs` also now honors `config/path.facts.yml` as an approved-fact authority (`--facts` / `factsPath`, roadmap 1.2).
 4. **Cover letter web surface shipped** — core `generate-cover-letter.mjs` now has a `/api/run` kind (`"cover-letter"`) and an in-app "Cover letter" button on report pages (`web/src/components/generate-cover-button.tsx`): AI drafts + renders the tailored letter against the report + CV, never submits. Prompt built by the pure, unit-tested `web/src/lib/run-cover-prompt.mjs` (`dc38228`).
 5. **People ledger + contact graph shipped** — the ledger (`path-safety/contacts.mjs`, `data/contacts.jsonl`) prevents per-person duplicate contact, a read-only `/api/contacts` web surface exposes it (`09c0bc5`), the graph edges (person ↔ company/role/timeline, resolved from the application tracker) ship as an additive `graph` block (`4bfd3c1`), and the dispatch gate is now channel-scoped (`isContactedOnChannel`: a prior email blocks email but allows LinkedIn, and vice versa) with name-only dedup (`isContactedByNameOnChannel`: a name-only LinkedIn record blocks a LinkedIn dispatch, allows an email dispatch, never blocks a packet whose address resolves to a person).
-6. **PATH Brain is not functional** — no real provider; `path-run.mjs` hard-forces `fake`/`none`.
+6. **PATH Brain is functional** — real `gemini` provider (`provider-registry.mjs` + `gemini-provider.mjs`) wired through the capability gateway (`model.invoke`, human approval, capability receipts); `path-run.mjs` routes real providers via the gateway with `brainTimeoutMs`, `fake`/`none` are explicit opt-in. Remaining gap: live transport/send (item 7).
 7. **Approval gate is air-tight but terminates at HUMAN_REVIEW** — real physical sending doesn't exist; audit + outbox + approvals are fully wired *for the record*.
 
 ---

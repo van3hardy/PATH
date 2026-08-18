@@ -36,6 +36,7 @@ export async function runRecruiterWorkflow(options = {}) {
       provider,
       now,
       idFactory,
+      brainTimeoutMs = 5000,
       fsImpl = fs,
       gateOutboundFn = gateOutbound,
       gateOptions = {}
@@ -80,7 +81,7 @@ export async function runRecruiterWorkflow(options = {}) {
         source: item.source,
         quote: item.quote
       }))
-    }, { claimValidationMode: 'claim-report' });
+    }, { claimValidationMode: 'claim-report', timeoutMs: brainTimeoutMs });
     writeRunArtifact({
       rootDir, runId, name: 'draft.md', content: brainOutput.text
     }, lifecycleOptions);

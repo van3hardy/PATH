@@ -72,8 +72,8 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 
 | # | Work | Status |
 |---|---|---|
-| 2.1 | Wire a real model provider into `path-brain/` (currently `fake-provider.mjs` + `no-model-provider.mjs` only) | ⬜ |
-| 2.2 | Remove the hard-force in `path-run.mjs`; route through the approval/policy engine | ⬜ |
+| 2.1 | Wire a real model provider into `path-brain/` (currently `fake-provider.mjs` + `no-model-provider.mjs` only) | ✅ |
+| 2.2 | Remove the hard-force in `path-run.mjs`; route through the approval/policy engine | ✅ |
 
 **Skill gate:** `gstack-setup-gbrain` (index/infra) → `brainstorming` → `da` → `writing-plans` → `subagent-driven-development` → `verification-before-completion`.
 **Exit criterion:** an evaluation runs through PATH Brain with a real provider under the YELLOW/GREEN approval rules; `fake`/`none` become explicit opt-in, not the default.
