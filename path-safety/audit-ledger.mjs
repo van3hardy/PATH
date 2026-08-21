@@ -19,9 +19,11 @@ const HEX_64 = /^[a-f0-9]{64}$/;
 const LOCKED_POLICY = 'path-safety-v1';
 const LOCKED_VOICE = 'path-recruiter-persistent-respectful-v1';
 const LOCKED_DISCLOSURE = 'always-disclose-ai-assistance-v1';
-const LOCKED_PROMPT = 'path-recruiter-v1';
+const FIRST_TOUCH_PROMPT = 'path-recruiter-v1';
+const REPLY_PROMPT = 'path-reply-v1';
 const LOCKED_PROVIDER = 'fake';
-const LOCKED_MODEL = 'deterministic-recruiter-template-v1';
+const FIRST_TOUCH_MODEL = 'deterministic-recruiter-template-v1';
+const REPLY_MODEL = 'deterministic-reply-template-v1';
 const EVENT_RULES = new Map([
   ['approval_packet_queue_attempted', { decisions: ['QUEUE_FOR_APPROVAL'], tier: 'YELLOW' }],
   ['approval_packet_queued', { decisions: ['LOCAL_REVIEW_READY'], tier: 'YELLOW' }],
@@ -108,10 +110,14 @@ function hasValidAuditFacts(entry) {
       !HEX_64.test(entry.claimReportHash) ||
       entry.policyVersion !== LOCKED_POLICY || entry.voiceProfile !== LOCKED_VOICE ||
       entry.disclosurePolicy !== LOCKED_DISCLOSURE || entry.disclosureIncluded !== true ||
-      entry.promptVersion !== LOCKED_PROMPT ||
+      ![FIRST_TOUCH_PROMPT, REPLY_PROMPT].includes(entry.promptVersion) ||
       !(entry.runId === null || isNonemptyString(entry.runId))) return false;
 
-  if (entry.provider === LOCKED_PROVIDER && entry.model === LOCKED_MODEL) return true;
+  if (entry.provider === LOCKED_PROVIDER &&
+      ((entry.promptVersion === FIRST_TOUCH_PROMPT && entry.model === FIRST_TOUCH_MODEL) ||
+       (entry.promptVersion === REPLY_PROMPT && entry.model === REPLY_MODEL))) {
+    return true;
+  }
   if (REAL_PROVIDER_IDS.includes(entry.provider) && isNonemptyString(entry.model)) return true;
   return diagnostic && entry.provider === 'none' && entry.model === 'none';
 }

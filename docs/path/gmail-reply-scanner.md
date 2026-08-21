@@ -48,11 +48,12 @@ The block carries settings only — the script is invoked directly and never goe
 Gmail Inbox (in:inbox newer_than:Nd)
   → blocklist filter (built-in defaults ∪ config blocklist_senders)
   → append to data/reply-candidates.json     [candidate shape:]
-                                              { message_id, from, subject, body_snippet, signal: null }
+                                              { message_id, from, subject, body_snippet, signal: null,
+                                                thread_id?, message_id_header?, references?, in_reply_to? }
   → write processed ids to data/gmail-state.json (shared cursor)
 ```
 
-- **`data/reply-candidates.json`** — the append-only feed `reply-watch.mjs` consumes. Written atomically (write-then-rename, same `appendCandidate` path `paste-reply.mjs` uses).
+- **`data/reply-candidates.json`** — the append-only feed `reply-watch.mjs` and `scripts/path-reply-run.mjs` consume. Written atomically (write-then-rename, same `appendCandidate` path `paste-reply.mjs` uses). Gmail thread metadata is preserved when Gmail provides it so an approved reply packet can dispatch with `threadId`, `In-Reply-To`, and `References` headers.
 - **`data/gmail-state.json`** — a shared `processed_message_ids` cursor so re-runs skip what's already been handled, staying idempotent even if `reply-candidates.json` is pruned.
 
 ## Safety notes
@@ -71,5 +72,13 @@ node reply-watch.mjs
 ```
 
 That reads the candidates, classifies signals (Noise / Not a match / Interview, etc.), and drives the review loop.
+
+To draft an approval-gated email reply without sending mail, build a reply context JSON containing the owner-approved evidence refs and run:
+
+```
+node scripts/path-reply-run.mjs <candidate.json> <reply-context.json> <repo-or-sandbox-root>
+```
+
+This uses the fake PATH Brain provider by default, writes a HUMAN_REVIEW approval packet to the local outbox, and does not dispatch email.
 
 Reference: [implementation plan](../superpowers/plans/2026-08-09-gmail-reply-scanner.md), [design spec](../superpowers/specs/2026-08-09-gmail-reply-scanner-design.md).

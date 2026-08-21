@@ -42,6 +42,7 @@ export const CANONICAL_STATES = [
   "Rejected",
   "Discarded",
   "SKIP",
+  "Hired",
 ] as const;
 
 export function canonStatus(s: string): string {

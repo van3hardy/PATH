@@ -28,8 +28,19 @@ const PROFILE_FILE = process.env.CAREER_OPS_PROFILE || join(CAREER_OPS, 'config/
 // --- CLI args ---
 const args = process.argv.slice(2);
 const summaryMode = args.includes('--summary');
+const jsonMode = args.includes('--json');
 const overdueOnly = args.includes('--overdue-only');
 const appliedDaysIdx = args.indexOf('--applied-days');
+const knownFlags = new Set(['--summary', '--json', '--overdue-only', '--applied-days']);
+const unknownFlags = args.filter((arg, index) => {
+  if (!arg.startsWith('-')) return false;
+  if (args[index - 1] === '--applied-days') return false;
+  return !knownFlags.has(arg);
+});
+if (unknownFlags.length > 0) {
+  console.error(`Error: unrecognized flag(s): ${unknownFlags.join(', ')}.`);
+  process.exit(1);
+}
 const appliedDaysOverride = appliedDaysIdx !== -1 ? parseInt(args[appliedDaysIdx + 1], 10) : null;
 
 // --- Cadence config ---
@@ -684,12 +695,19 @@ function printSummary(result) {
 // --- Run (CLI only; guarded so the module is safely importable for tests) ---
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = analyze();
+  const output = result.error && jsonMode
+    ? {
+      metadata: { analysisDate: new Date().toISOString().split('T')[0], totalTracked: 0, actionable: 0, overdue: 0, urgent: 0, cold: 0, waiting: 0 },
+      entries: [],
+      cadenceConfig: CADENCE,
+    }
+    : result;
 
-  if (summaryMode) {
-    printSummary(result);
+  if (summaryMode && !jsonMode) {
+    printSummary(output);
   } else {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(output, null, 2));
   }
 
-  if (result.error) process.exit(1);
+  if (output.error) process.exit(1);
 }

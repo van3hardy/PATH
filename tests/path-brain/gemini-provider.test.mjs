@@ -40,6 +40,32 @@ function validInput() {
   };
 }
 
+function validReplyInput() {
+  return {
+    schemaVersion: 'path.brain.request.v1',
+    promptVersion: 'path-reply-v1',
+    objective: 'draft_email_reply',
+    recipient: { name: 'Recruiter', address: 'recruiter@example.test' },
+    opportunity: { company: 'Example Company', role: 'AI Engineer' },
+    voiceProfile: VOICE_PROFILE,
+    disclosurePolicy: DISCLOSURE_POLICY,
+    replyContext: {
+      candidateMessageId: 'gmail-message-123',
+      originalSubject: 'AI Engineer @ Example Company',
+      bodySnippet: 'Could you share a few times that work for Van?',
+      threadId: 'thread-123',
+      inReplyTo: '<original@example.test>',
+      references: '<root@example.test> <original@example.test>'
+    },
+    evidence: [{
+      id: 'fact-1',
+      factKey: 'workflow-platform',
+      source: 'cv.md',
+      quote: CLAIM
+    }]
+  };
+}
+
 function textTransport(text) {
   return async () => ({ text });
 }
@@ -87,6 +113,25 @@ test('gemini provider honors an explicit model override', async () => {
   });
   const output = await provider.generate(validInput());
   assert.equal(output.model, 'gemini-custom');
+});
+
+test('gemini provider drafts reply prompts and returns reply promptVersion', async () => {
+  let prompt;
+  const provider = createGeminiProvider({
+    transport: async (request) => {
+      prompt = request.prompt;
+      return { text: `Hello Recruiter,\n\n${CLAIM}\n\nBest, Van` };
+    },
+    objective: 'draft_email_reply'
+  });
+
+  const output = await provider.generate(validReplyInput());
+
+  assert.equal(output.promptVersion, 'path-reply-v1');
+  assert.deepEqual(output.claims, [CLAIM]);
+  assert.ok(prompt.includes('drafting a reply email'));
+  assert.ok(prompt.includes('Original subject: AI Engineer @ Example Company'));
+  assert.ok(prompt.includes('Original message snippet: Could you share a few times that work for Van?'));
 });
 
 test('gemini provider uses declared claims filtered to approved quotes present in text', async () => {
@@ -280,8 +325,6 @@ test('gateway is disabled when no approval is supplied; transport runs directly 
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   const receiptPath = path.join(rootDir, 'data', 'path-capability-receipts.jsonl');
 
-  const authority = createCapabilityApprovalAuthority();
-  const receiptSink = createJsonlReceiptSink(receiptPath);
   let transportCalled = false;
 
   const provider = createGeminiProvider({
@@ -292,9 +335,6 @@ test('gateway is disabled when no approval is supplied; transport runs directly 
     apiKey: 'test-key',
     runId: 'run-gateway-test-002',
     objective: 'draft_first_touch',
-    approvalAuthority: authority,
-    approval: null,
-    receiptSink,
     now: () => NOW
   });
 

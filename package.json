@@ -1,6 +1,6 @@
 {
   "name": "path",
-  "version": "1.22.0",
+  "version": "1.26.0",
   "description": "Path - Van's local approval-gated recruiter and job-search agent",
   "private": true,
   "scripts": {
@@ -25,6 +25,7 @@
     "update": "node update-system.mjs apply",
     "rollback": "node update-system.mjs rollback",
     "liveness": "node check-liveness.mjs",
+    "freshness": "node check-table-freshness.mjs",
     "extract": "node browser-extract.mjs",
     "scan": "node scan.mjs",
     "scan:full": "node scan-ats-full.mjs",
@@ -60,7 +61,8 @@
     "path:run": "node scripts/path-run.mjs",
     "path:queue": "node scripts/path-queue.mjs",
     "path:approve": "node scripts/path-approve.mjs",
-    "path:dispatch": "node scripts/path-dispatch.mjs"
+    "path:dispatch": "node scripts/path-dispatch.mjs",
+    "path:scheduler": "node scripts/path-scheduler.mjs"
   },
   "keywords": [
     "ai",

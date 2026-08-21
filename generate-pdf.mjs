@@ -364,7 +364,7 @@ export function injectPrintPageCss(html, format = 'a4') {
   const pageStyle = `<style id="career-ops-page-setup">\n@page { size: ${pageSize}; margin: var(--page-margin, ${PDF_PAGE_MARGIN}); }\n</style>`;
 
   if (/<\/head>/i.test(html)) {
-    return html.replace(/<\/head>/i, `${pageStyle}\n</head>`);
+    return html.replace(/<\/head>/i, () => `${pageStyle}\n</head>`);
   }
 
   if (/<html\b[^>]*>/i.test(html)) {

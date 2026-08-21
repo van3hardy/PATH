@@ -47,6 +47,24 @@ test('parseMessage extracts headers + body and sets signal null', () => {
   });
 });
 
+test('parseMessage preserves Gmail thread and reply headers when present', () => {
+  const payload = {
+    headers: [
+      { name: 'From', value: 'recruiter@example.com' },
+      { name: 'Subject', value: 'Re: Interview invitation' },
+      { name: 'Message-ID', value: '<reply@example.com>' },
+      { name: 'References', value: '<root@example.com> <previous@example.com>' },
+      { name: 'In-Reply-To', value: '<previous@example.com>' },
+    ],
+    parts: [{ body: { data: Buffer.from('Can you do Tuesday?').toString('base64url') } }],
+  };
+  const cand = parseMessage({ id: 'abc123', threadId: 'thread-123', payload });
+  assert.equal(cand.thread_id, 'thread-123');
+  assert.equal(cand.message_id_header, '<reply@example.com>');
+  assert.equal(cand.references, '<root@example.com> <previous@example.com>');
+  assert.equal(cand.in_reply_to, '<previous@example.com>');
+});
+
 test('getAccessToken exchanges the refresh grant and returns the access token', async () => {
   const calls = [];
   const fetchFn = async (url, init) => {

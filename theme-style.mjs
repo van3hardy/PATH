@@ -90,6 +90,6 @@ export function buildThemeStyleBlock(tokens) {
 export function injectThemeStyle(html, tokens) {
   const block = buildThemeStyleBlock(tokens);
   if (!block) return html;
-  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${block}\n</head>`);
+  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, () => `${block}\n</head>`);
   return `${block}\n${html}`;
 }

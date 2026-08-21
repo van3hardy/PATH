@@ -95,6 +95,22 @@ try {
   check('outcome feedback dir name parsed', outcomeLogs[0].num === 1 && outcomeLogs[0].company === 'acme' && outcomeLogs[0].role === 'eng');
   check('outcome feedback missing dir returns []', Array.isArray(ll.readOutcomeFeedback(join(tmpDir, 'nope'))) && ll.readOutcomeFeedback(join(tmpDir, 'nope')).length === 0);
 
+  // A role containing underscores must split on the FIRST underscore only.
+  mkdirSync(join(outcomeDir, '2_beta_senior_data_engineer'), { recursive: true });
+  writeFileSync(join(outcomeDir, '2_beta_senior_data_engineer', 'outcome.md'), [
+    '## Entry: 2026-07-02',
+    '',
+    '- **Outcome Type**: rejected',
+    '- **Canonical State**: Rejected',
+    '- **Stage Reached**: Onsite',
+    '- **Verbatim Feedback**:',
+    '> Solid, but the team went with a specialist.',
+    '',
+  ].join('\n'));
+  const outcomeLogs2 = ll.readOutcomeFeedback(outcomeDir);
+  check('outcome feedback role with underscore parsed',
+    outcomeLogs2.length === 2 && outcomeLogs2[1].num === 2 && outcomeLogs2[1].company === 'beta' && outcomeLogs2[1].role === 'senior_data_engineer');
+
   // ---- Report gap parsing: readReports over a temp tracker + reports dir. ----
   const reportDir = join(tmpDir, 'reports');
   mkdirSync(reportDir, { recursive: true });
@@ -115,10 +131,12 @@ try {
     '',
   ].join('\n'));
   const appsFile = join(tmpDir, 'applications.md');
-  writeFileSync(appsFile, tracker);
+  // A non-table line containing pipes must be skipped, not parsed as a row.
+  writeFileSync(appsFile, `${tracker}\nnote: | 1 | 2026-06-01 | Acme | Senior Dev | 4.0/5 | Applied | ✅ | [9](reports/009-acme-2026-06-01.md) | |\n`);
   const parsedReports = ll.readReports(appsFile, reportDir);
   check('readReports parses gapText', parsedReports.length === 1 && /Kubernetes/.test(parsedReports[0].gapText));
   check('readReports carries score', parsedReports[0].score === 4.0);
+  check('readReports skips non-table lines', parsedReports.length === 1 && parsedReports.every((r) => r.num === '1'));
 
   // ---- CLI main-guard: importing must not run the CLI or write artifacts. ----
   const feedbackPath = join(ROOT, 'data', 'learning-feedback.json');

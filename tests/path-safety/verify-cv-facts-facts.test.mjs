@@ -8,7 +8,7 @@
 import { pass, fail } from '../helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 
 console.log('\nverify-cv-facts.mjs — approved-fact store wiring');
@@ -94,6 +94,25 @@ try {
     pass('unapproved fact is not honored as an authority');
   } else {
     fail(`unapproved fact should block, got ${JSON.stringify(unapprovedResult)}`);
+  }
+
+  // (f) A broken facts store (unreadable) warns loudly on stderr and still
+  // fails closed — never a silent fail-open.
+  const brokenFactsPath = join(dir, 'broken-store');
+  mkdirSync(brokenFactsPath, { recursive: true });
+  let warned = '';
+  const originalError = console.error;
+  console.error = (msg) => { warned += String(msg); };
+  let brokenResult;
+  try {
+    brokenResult = mod.verifyFacts(employerTarget, { sourcePaths: [sourcePath], configPath, factsPath: brokenFactsPath });
+  } finally {
+    console.error = originalError;
+  }
+  if (brokenResult.verdict === 'block' && /WARNING: could not read approved-fact store/.test(warned)) {
+    pass('broken facts store warns loudly and still blocks');
+  } else {
+    fail(`broken facts store should warn + block, got verdict=${brokenResult?.verdict} warned=${JSON.stringify(warned)}`);
   }
 } finally {
   cleanup();

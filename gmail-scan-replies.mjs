@@ -85,14 +85,17 @@ export function isBlocklisted(from, blocklist) {
 
 /**
  * Extract a reply-watch candidate from a Gmail full-detail payload.
- * @param {{ id: string, payload: any }} o
- * @returns {{ message_id: string, from: string, subject: string, body_snippet: string, signal: null }}
+ * @param {{ id: string, threadId?: string, payload: any }} o
+ * @returns {{ message_id: string, from: string, subject: string, body_snippet: string, signal: null, thread_id?: string, message_id_header?: string, references?: string, in_reply_to?: string }}
  */
-export function parseMessage({ id, payload }) {
+export function parseMessage({ id, threadId, payload }) {
   const headers = Array.isArray(payload?.headers) ? payload.headers : [];
   const pick = (name) => headers.find((h) => h?.name?.toLowerCase() === name)?.value ?? '';
   const from = pick('from');
   const subject = pick('subject');
+  const messageIdHeader = pick('message-id');
+  const references = pick('references');
+  const inReplyTo = pick('in-reply-to');
   const body = getMessageBody(payload);
   const seed = parseRoleAtCompany(subject);
   return {
@@ -101,6 +104,10 @@ export function parseMessage({ id, payload }) {
     subject,
     body_snippet: body || (seed ? `${seed.role} ${seed.company}`.trim() : ''),
     signal: null,
+    ...(threadId ? { thread_id: threadId } : {}),
+    ...(messageIdHeader ? { message_id_header: messageIdHeader } : {}),
+    ...(references ? { references } : {}),
+    ...(inReplyTo ? { in_reply_to: inReplyTo } : {}),
   };
 }
 
@@ -220,7 +227,7 @@ export async function scanReplies({
         console.warn(`gmail-replies: failed to fetch message ${id} — ${err.message}`);
         continue;
       }
-      const candidate = parseMessage({ id, payload: detail?.payload });
+      const candidate = parseMessage({ id, threadId: detail?.threadId, payload: detail?.payload });
       if (isBlocklisted(candidate.from, blocklist)) { skippedBlocklisted++; continue; }
       await writeCandidate(candidate);
       appended.push(id);

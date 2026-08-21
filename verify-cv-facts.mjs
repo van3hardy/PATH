@@ -304,7 +304,10 @@ function loadApprovedFacts(path) {
       .filter(fact => fact.approved === true)
       .map(fact => fact.text)
       .join('\n');
-  } catch {
+  } catch (error) {
+    // A broken store must never silently fail open: surface it loudly on
+    // stderr while still returning '' so the gate is unchanged.
+    console.error(`WARNING: could not read approved-fact store ${path}: ${error?.message ?? String(error)}`);
     return '';
   }
 }

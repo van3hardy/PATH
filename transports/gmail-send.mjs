@@ -6,12 +6,17 @@ function codedError(code, cause) {
   return Object.assign(new Error(code, cause ? { cause } : undefined), { code });
 }
 
-function buildMessage({ to, subject, body }) {
-  return [
+function buildMessage({ to, subject, body, inReplyTo, references }) {
+  const headers = [
     `To: ${to.name} <${to.address}>`,
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Type: text/plain; charset=UTF-8'
+  ];
+  if (inReplyTo) headers.push(`In-Reply-To: ${inReplyTo}`);
+  if (references) headers.push(`References: ${references}`);
+  return [
+    ...headers,
     '',
     body
   ].join('\r\n');
@@ -46,10 +51,14 @@ export async function sendGmailMessage({
   to,
   subject,
   body,
+  threadId,
+  inReplyTo,
+  references,
   fetchFn = globalThis.fetch
 }) {
   const accessToken = await exchangeAccessToken({ clientId, clientSecret, refreshToken }, fetchFn);
-  const raw = Buffer.from(buildMessage({ to, subject, body }), 'utf8').toString('base64url');
+  const raw = Buffer.from(buildMessage({ to, subject, body, inReplyTo, references }), 'utf8').toString('base64url');
+  const payload = threadId ? { raw, threadId } : { raw };
 
   let response;
   try {
@@ -59,7 +68,7 @@ export async function sendGmailMessage({
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ raw })
+      body: JSON.stringify(payload)
     });
   } catch (error) {
     throw codedError('SEND_FAILED_HTTP', error);

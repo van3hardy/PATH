@@ -453,13 +453,17 @@ function cleanup(sandbox) {
 {
   const sb = makeSandbox();
   writeTracker(sb, [trackerRow(1, '2026-05-01', 'Acme', 'Engineer', '4.0/5', 'Applied', 'Applied 2026-06-20.')]);
-  // Ownerless for 100ms: past the caller's staleMs (so the unfloored code
-  // reclaims it immediately) but far inside the 1s floor. Pinning both sides
-  // of the relation keeps the test off the wall clock — against a directory
-  // created "just now" this would instead depend on whether a sub-millisecond
-  // age drifts past a 1ms threshold before the retry loop looks again.
+  // The lock must look fresh to the child for its ENTIRE run, and the child
+  // spawns only after this process has already set the mtime — so a positive
+  // backdate is wrong: node spawn latency (~900ms here) plus the 300ms retry
+  // loop would push a 100ms-old lock past the 1s floor mid-run and the child
+  // would legitimately reclaim it. Writing the mtime into the future makes the
+  // observed age negative at every check, deterministically inside the floor,
+  // no matter how long spawning takes. (The "past a small staleMs" side of the
+  // boundary is pinned in-process by test/pipeline-lock.test.mjs #2304, which
+  // is immune to spawn latency.)
   mkdirSync(sb.lock, { recursive: true });
-  const heldSince = new Date(Date.now() - 100);
+  const heldSince = new Date(Date.now() + 60_000);
   utimesSync(sb.lock, heldSince, heldSince);
   const res = run(['1'], sb, {
     CAREER_OPS_FOLLOWUPS_LOCK_STALE_MS: '10',

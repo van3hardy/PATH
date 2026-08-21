@@ -113,16 +113,48 @@ async function loadDotenvOnce() {
 // Subprocess seam: PATH_SEND_TRANSPORT=fake routes to an in-script fake so
 // integration tests exercise the full gate/send/ledger host without OAuth.
 // PATH_SEND_FAKE_FAIL=1 forces a failure for the failure test.
-async function resolveSendTransport() {
+async function resolveSendTransport(channel = 'email') {
   if (process.env.PATH_SEND_TRANSPORT === 'fake') {
     return {
-      async sendGmailMessage() {
+      async sendGmailMessage(args = {}) {
         if (process.env.PATH_SEND_FAKE_FAIL === '1') throw codedError('SEND_FAILED_API');
+        if (process.env.PATH_SEND_FAKE_ECHO_THREAD === '1') {
+          return {
+            ok: true,
+            messageId: `fake-${args.threadId ?? 'missing'}-${args.inReplyTo ? 'reply' : 'missing'}-${args.references ? 'refs' : 'missing'}`
+          };
+        }
         return { ok: true, messageId: `fake-${crypto.randomUUID()}` };
+      },
+      async sendLinkedInMessage(args = {}) {
+        if (process.env.PATH_SEND_FAKE_FAIL === '1') throw codedError('SEND_FAILED_API');
+        return { ok: true, messageId: `fake-linkedin-${crypto.randomUUID()}` };
+      },
+      async placeCall(args = {}) {
+        if (process.env.PATH_SEND_FAKE_FAIL === '1') throw codedError('SEND_FAILED_API');
+        return { ok: true, messageId: `fake-telephony-${crypto.randomUUID()}` };
       }
     };
   }
   await loadDotenvOnce();
+  if (channel === 'linkedin') {
+    const relayUrl = process.env.PATH_LINKEDIN_RELAY_URL;
+    if (!relayUrl) throw codedError('SEND_FAILED_CONFIG');
+    const apiKey = process.env.PATH_LINKEDIN_API_KEY;
+    const { sendLinkedInMessage } = await import('../transports/linkedin-send.mjs');
+    return {
+      sendLinkedInMessage: (args) => sendLinkedInMessage({ ...args, relayUrl, ...(apiKey ? { apiKey } : {}) })
+    };
+  }
+  if (channel === 'phone') {
+    const relayUrl = process.env.PATH_TELEPHONY_RELAY_URL;
+    if (!relayUrl) throw codedError('SEND_FAILED_CONFIG');
+    const apiKey = process.env.PATH_TELEPHONY_API_KEY;
+    const { placeCall } = await import('../transports/telephony-call.mjs');
+    return {
+      placeCall: (args) => placeCall({ ...args, relayUrl, ...(apiKey ? { apiKey } : {}) })
+    };
+  }
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
   const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
@@ -144,17 +176,28 @@ function readDispatches(dispatchPath) {
 // Runs after evaluateDryRun() returned READY_TO_DISPATCH, so the send is
 // twice-gated: same gate in the same run that performs the send.
 async function performSend({ packet, dispatchPath, contactsPath }) {
+  const channel = canonicalChannel(packet.action?.channel) ?? 'email';
   let transport;
   try {
-    transport = await resolveSendTransport();
+    transport = await resolveSendTransport(channel);
   } catch (error) {
     return { status: error?.code || 'SEND_FAILED_HTTP' };
   }
   const subject = `${packet.action.opportunity.role} @ ${packet.action.opportunity.company}`;
   const to = { name: packet.recipient.name, address: packet.recipient.address };
+  const send = channel === 'linkedin' ? transport.sendLinkedInMessage
+    : channel === 'phone' ? transport.placeCall
+    : transport.sendGmailMessage;
   let timestamp;
   try {
-    const result = await transport.sendGmailMessage({ to, subject, body: packet.finalText });
+    const result = await send({
+      to,
+      subject,
+      body: packet.finalText,
+      ...(typeof packet.action?.threadId === 'string' ? { threadId: packet.action.threadId } : {}),
+      ...(typeof packet.action?.inReplyTo === 'string' ? { inReplyTo: packet.action.inReplyTo } : {}),
+      ...(typeof packet.action?.references === 'string' ? { references: packet.action.references } : {})
+    });
     if (!result?.ok) throw codedError('SEND_FAILED_API');
     timestamp = new Date().toISOString();
     const record = {
@@ -162,7 +205,7 @@ async function performSend({ packet, dispatchPath, contactsPath }) {
       event: 'dispatch_completed',
       timestamp,
       messageId: result.messageId,
-      providerId: 'gmail'
+      providerId: channel === 'linkedin' ? 'linkedin' : channel === 'phone' ? 'telephony' : 'gmail'
     };
     fs.mkdirSync(path.dirname(dispatchPath), { recursive: true });
     fs.appendFileSync(dispatchPath, `${JSON.stringify(record)}\n`, 'utf8');

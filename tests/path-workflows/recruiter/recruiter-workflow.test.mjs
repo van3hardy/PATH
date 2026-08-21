@@ -580,3 +580,51 @@ test('gemini provider via registry runs the workflow under the gateway', async (
     assert.equal(record.capabilityId, 'model.invoke');
   }
 });
+
+test('reply request passes bounded reply context into Brain and queues threaded approval packet', async (t) => {
+  const rootDir = makeSandbox(t);
+  const replyContext = {
+    candidateMessageId: 'gmail-message-123',
+    originalSubject: 'Re: AI Engineer at Example Company',
+    bodySnippet: 'Could you share a few times that work for Van?',
+    threadId: 'thread-123',
+    inReplyTo: '<gmail-message-123@example.test>',
+    references: '<root@example.test> <gmail-message-123@example.test>'
+  };
+  const request = rawRequest({
+    objective: 'draft_email_reply',
+    action: { type: 'send_email', channel: 'email', touch: 'reply' },
+    promptVersion: 'path-reply-v1',
+    replyContext
+  });
+  let received;
+  const provider = {
+    async generate(input) {
+      received = input;
+      return fakeProvider.generate(input);
+    }
+  };
+
+  const result = await runRecruiterWorkflow(workflowOptions(rootDir, {
+    rawRequest: request,
+    provider
+  }));
+
+  assert.equal(result.status, 'HUMAN_REVIEW');
+  assert.equal(received.objective, 'draft_email_reply');
+  assert.deepEqual(received.replyContext, replyContext);
+  const outbox = fs.readFileSync(dataPath(rootDir, 'path-outbox.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  assert.equal(outbox.length, 1);
+  assert.equal(outbox[0].promptVersion, 'path-reply-v1');
+  assert.equal(outbox[0].model, 'deterministic-reply-template-v1');
+  assert.deepEqual(outbox[0].action, {
+    type: 'send_email',
+    channel: 'email',
+    touch: 'reply',
+    opportunity: { company: 'Example Company', role: 'AI Engineer' },
+    threadId: 'thread-123',
+    inReplyTo: '<gmail-message-123@example.test>',
+    references: '<root@example.test> <gmail-message-123@example.test>'
+  });
+});

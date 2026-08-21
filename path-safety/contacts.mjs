@@ -58,6 +58,12 @@ export function loadContacts(filePath) {
     if (!isPlainObject(entry) || !isNonemptyString(entry.contactId)) {
       throw codify('FAILED_CONTACTS_MALFORMED');
     }
+    // Tombstone: a superseded name-only row (email promotion). Removes the old
+    // contactId so the ledger resolves to exactly one live record per person.
+    if (isNonemptyString(entry.supersededBy)) {
+      contacts.delete(entry.contactId);
+      continue;
+    }
     contacts.set(entry.contactId, entry);
   }
   return contacts;
@@ -137,6 +143,14 @@ function mergeChannel(channels, { channel, address, firstSeenAt }) {
   return [...channels, { channel, address, firstSeenAt }];
 }
 
+function mergeChannels(base, extra) {
+  let channels = base ?? [];
+  for (const entry of extra ?? []) {
+    channels = mergeChannel(channels, entry);
+  }
+  return channels;
+}
+
 function buildRecord(prior, input) {
   const { name, email, channel, at, applicationId, source } = input;
   if ((!isNonemptyString(email) && !isNonemptyString(name)) || !isNonemptyString(channel)) {
@@ -178,16 +192,54 @@ function appendRecord(filePath, record) {
   }
 }
 
+// Promotion: an email arriving for a person previously known only by name
+// folds the name-only record's history and channels into the email-keyed
+// record. When an email-keyed record already exists too, both histories are
+// merged so no outreach evidence is ever split across rows.
+function buildPromotedRecord(prior, nameOnly, input) {
+  const { name, email, channel, at, applicationId, source } = input;
+  const historyEvent = { event: 'contacted', at, channel, applicationId: applicationId ?? null, source };
+  return {
+    contactId: contactIdFor(email),
+    name: prior?.name ?? nameOnly?.name ?? name ?? null,
+    email: email ?? null,
+    channels: mergeChannels(
+      mergeChannel(prior?.channels ?? [], { channel, address: email, firstSeenAt: at }),
+      nameOnly?.channels
+    ),
+    history: [...(prior?.history ?? []), ...(nameOnly?.history ?? []), historyEvent]
+      .sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? ''))),
+    lastContactedAt: at
+  };
+}
+
 export function upsertContact(filePath, { name, email, channel, at, applicationId, source = 'dispatch' } = {}) {
   const atValue = at ?? new Date().toISOString();
   const contacts = loadContacts(filePath);
+  const hasEmail = isNonemptyString(email);
   // Email identity owns a record when an email is present; otherwise the name
   // path owns it (name-only contacts, no email yet).
-  const prior = isNonemptyString(email)
+  const prior = hasEmail
     ? findPersonByEmail(contacts, email)
     : findPersonByName(contacts, name);
-  const record = buildRecord(prior, { name, email, channel, at: atValue, applicationId, source });
+  // Promotion: when an email arrives for a person known only by name, the
+  // name-only record is merged into the email-keyed record and tombstoned, so
+  // the ledger never holds two rows for one person.
+  const nameOnly = hasEmail && isNonemptyString(name)
+    ? findPersonByName(contacts, name)
+    : undefined;
+  const needsPromotion = Boolean(nameOnly && nameOnly.contactId !== prior?.contactId);
+  const record = needsPromotion
+    ? buildPromotedRecord(prior, nameOnly, { name, email, channel, at: atValue, applicationId, source })
+    : buildRecord(prior, { name, email, channel, at: atValue, applicationId, source });
   appendRecord(filePath, record);
+  if (needsPromotion) {
+    appendRecord(filePath, {
+      contactId: nameOnly.contactId,
+      supersededBy: record.contactId,
+      supersededAt: atValue
+    });
+  }
   return record;
 }
 

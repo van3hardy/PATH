@@ -51,6 +51,32 @@ test('happy path posts raw message to messages/send and returns messageId', asyn
   assert.ok(message.endsWith('Agent workflows on Windows 11.'), message);
 });
 
+test('reply sends include thread id and reply headers without changing first-touch sends', async () => {
+  const calls = [];
+  const fetchFn = async (url, init) => {
+    calls.push({ url, init });
+    if (url === TOKEN_URL) return tokenResponse();
+    return { ok: true, status: 200, json: async () => ({ id: 'msg-reply' }) };
+  };
+
+  const result = await sendGmailMessage({
+    ...DEFAULT_ARGS,
+    subject: 'Re: AI Engineer @ Example Company',
+    threadId: 'thread-123',
+    inReplyTo: '<original@example.com>',
+    references: '<root@example.com> <original@example.com>',
+    fetchFn
+  });
+  assert.deepEqual(result, { ok: true, messageId: 'msg-reply' });
+
+  const [, sendCall] = calls;
+  const payload = JSON.parse(sendCall.init.body);
+  assert.equal(payload.threadId, 'thread-123');
+  const message = Buffer.from(payload.raw, 'base64url').toString('utf8');
+  assert.match(message, /^In-Reply-To: <original@example\.com>\r?\n/im);
+  assert.match(message, /^References: <root@example\.com> <original@example\.com>\r?\n/im);
+});
+
 test('token refresh rejection maps to SEND_FAILED_OAUTH and does not hit the send endpoint', async () => {
   let sendCalled = false;
   const fetchFn = async (url) => {

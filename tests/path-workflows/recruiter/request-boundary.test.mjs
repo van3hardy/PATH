@@ -117,12 +117,68 @@ test('provider gemini is accepted as a real provider id', () => {
   assert.equal(result.provider, 'gemini');
 });
 
+test('valid reply request is normalized with bounded reply context and threaded action metadata', () => {
+  const raw = validRequest();
+  raw.objective = 'draft_email_reply';
+  raw.action = { type: 'send_email', channel: 'email', touch: 'reply' };
+  raw.promptVersion = 'path-reply-v1';
+  raw.replyContext = {
+    candidateMessageId: 'gmail-message-123',
+    originalSubject: 'Re: AI Engineer at Synthetic Company',
+    bodySnippet: 'Could you share a few times that work for Van?',
+    threadId: 'thread-123',
+    inReplyTo: '<gmail-message-123@example.test>',
+    references: '<root@example.test> <gmail-message-123@example.test>'
+  };
+
+  const result = validate(raw);
+
+  assert.equal(result.objective, 'draft_email_reply');
+  assert.equal(result.promptVersion, 'path-reply-v1');
+  assert.deepEqual(result.replyContext, raw.replyContext);
+  assert.deepEqual(result.action, {
+    type: 'send_email',
+    channel: 'email',
+    touch: 'reply',
+    threadId: 'thread-123',
+    inReplyTo: '<gmail-message-123@example.test>',
+    references: '<root@example.test> <gmail-message-123@example.test>'
+  });
+  assert.ok(Object.isFrozen(result.replyContext));
+});
+
 const invalidCases = [
   ['missing recipient', (raw) => { delete raw.recipient; }, 'recipient'],
   ['empty recipient name', (raw) => { raw.recipient.name = ' '; }, 'recipient.name'],
   ['empty recipient address', (raw) => { raw.recipient.address = ''; }, 'recipient.address'],
   ['unsupported objective', (raw) => { raw.objective = 'mass_outreach'; }, 'objective'],
   ['unsupported action', (raw) => { raw.action.touch = 'follow_up'; }, 'action'],
+  ['reply request missing reply context', (raw) => {
+    raw.objective = 'draft_email_reply';
+    raw.action = { type: 'send_email', channel: 'email', touch: 'reply' };
+    raw.promptVersion = 'path-reply-v1';
+  }, 'replyContext'],
+  ['reply request with raw body context', (raw) => {
+    raw.objective = 'draft_email_reply';
+    raw.action = { type: 'send_email', channel: 'email', touch: 'reply' };
+    raw.promptVersion = 'path-reply-v1';
+    raw.replyContext = {
+      candidateMessageId: 'gmail-message-123',
+      originalSubject: 'Re: AI Engineer at Synthetic Company',
+      bodySnippet: 'Could you share a few times that work for Van?',
+      rawBody: 'must not cross the request boundary'
+    };
+  }, 'replyContext.rawBody'],
+  ['reply request with unbounded body snippet', (raw) => {
+    raw.objective = 'draft_email_reply';
+    raw.action = { type: 'send_email', channel: 'email', touch: 'reply' };
+    raw.promptVersion = 'path-reply-v1';
+    raw.replyContext = {
+      candidateMessageId: 'gmail-message-123',
+      originalSubject: 'Re: AI Engineer at Synthetic Company',
+      bodySnippet: 'x'.repeat(1001)
+    };
+  }, 'replyContext.bodySnippet'],
   ['unsupported provider', (raw) => { raw.provider = 'remote'; }, 'provider'],
   ['missing opportunity', (raw) => { delete raw.opportunity; }, 'opportunity'],
   ['empty opportunity company', (raw) => { raw.opportunity.company = ''; }, 'opportunity.company'],

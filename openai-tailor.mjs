@@ -239,6 +239,24 @@ IMPORTANT OPERATING RULES FOR THIS SESSION
 6. Do NOT include markdown formatting like \`\`\`html or conversational filler. Output the raw HTML starting with <!DOCTYPE html> and ending with </html>.`;
 
 // ---------------------------------------------------------------------------
+// Host-gated prompt-cache breakpoint (#1709, #2432)
+// ---------------------------------------------------------------------------
+// The system prompt is a large static prefix (shared + writing + pdf modes,
+// the HTML template, and the candidate's CV/profile). OpenAI-compatible
+// gateways (OpenRouter, DeepSeek, …) honor an ephemeral `cache_control`
+// breakpoint on the prefix and reuse it across back-to-back calls within the
+// cache TTL. api.openai.com instead caches long prefixes automatically and may
+// reject the non-standard field, so it gets a plain-string system message.
+// Either way the prompt TEXT is unchanged.
+function buildSystemMessage(prompt, host) {
+  if (host === 'api.openai.com') return { role: 'system', content: prompt };
+  return {
+    role: 'system',
+    content: [{ type: 'text', text: prompt, cache_control: { type: 'ephemeral' } }],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Call the OpenAI-compatible endpoint
 // ---------------------------------------------------------------------------
 const timeoutMs = parseInt(process.env.OPENAI_TIMEOUT_MS || '300000', 10);
@@ -261,7 +279,7 @@ try {
     body: JSON.stringify({
       model:    modelName,
       messages: [
-        { role: 'system', content: systemPrompt },
+        buildSystemMessage(systemPrompt, endpointHost),
         { role: 'user',   content: `EVALUATION REPORT:\n\n${reportText}\n\nJOB DESCRIPTION:\n\n${jdText}\n\nNow, generate and output the fully filled HTML CV matching the rules above. Output ONLY raw HTML.` },
       ],
       stream:      false,

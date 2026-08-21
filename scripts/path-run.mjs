@@ -4,7 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getProvider, REAL_PROVIDER_IDS } from '../path-brain/provider-registry.mjs';
-import { DEFAULT_MODEL, PROVIDER_IDS } from '../path-brain/provider-ids.mjs';
+import {
+  DEFAULT_MODEL,
+  DEFAULT_OPENAI_MODEL,
+  PROVIDER_IDS
+} from '../path-brain/provider-ids.mjs';
 
 const USAGE = [
   'Usage: node scripts/path-run.mjs <request.json> --local-only',
@@ -13,7 +17,20 @@ const USAGE = [
 const BRAIN_TIMEOUT_REAL_MS = 60 * 1000;
 const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
 
+let dotenvLoaded = false;
+async function loadDotenvOnce() {
+  if (dotenvLoaded) return;
+  dotenvLoaded = true;
+  try {
+    const { config } = await import('dotenv');
+    config();
+  } catch {
+    // dotenv optional — fall back to ambient process.env (CI, exported vars).
+  }
+}
+
 async function main(args) {
+  await loadDotenvOnce();
   if (args.length !== 2 || !args[0] || args[0].startsWith('--') ||
       args[1] !== '--local-only') {
     console.error(USAGE);
@@ -65,6 +82,10 @@ async function main(args) {
       console.error('BLOCKED_UNSUPPORTED_PROVIDER');
       return 2;
     }
+    if (error?.code === 'BLOCKED_INVALID_REQUEST') {
+      console.error('BLOCKED_INVALID_REQUEST');
+      return 2;
+    }
     console.error('FAILED_CLI');
     return 1;
   }
@@ -100,10 +121,7 @@ async function resolveProvider(rawRequest, rootDir) {
   if (!REAL_PROVIDER_IDS.includes(providerId)) {
     return getProvider(providerId);
   }
-  const model = typeof process.env.GEMINI_MODEL === 'string' &&
-    process.env.GEMINI_MODEL.trim().length > 0
-    ? process.env.GEMINI_MODEL.trim()
-    : DEFAULT_MODEL;
+  const model = resolveModel(providerId);
   const objective = rawRequest.objective ?? 'draft_first_touch';
   const runId = typeof rawRequest.runId === 'string' ? rawRequest.runId : null;
 
@@ -126,17 +144,19 @@ async function resolveProvider(rawRequest, rootDir) {
     approval: null
   });
 
-  let approval = null;
-  if (isRecord(rawRequest.requestApproval) &&
-      typeof rawRequest.requestApproval.approvedAt === 'string') {
-    approval = approveCapability(intent, {
-      authority: approvalAuthority,
-      source: 'human',
-      approvedBy: 'Van',
-      now: new Date(rawRequest.requestApproval.approvedAt),
-      ttlMs: APPROVAL_TTL_MS
+  if (!isRecord(rawRequest.requestApproval) ||
+      typeof rawRequest.requestApproval.approvedAt !== 'string') {
+    throw Object.assign(new Error('BLOCKED_INVALID_REQUEST'), {
+      code: 'BLOCKED_INVALID_REQUEST'
     });
   }
+  const approval = approveCapability(intent, {
+    authority: approvalAuthority,
+    source: 'human',
+    approvedBy: 'Van',
+    now: new Date(rawRequest.requestApproval.approvedAt),
+    ttlMs: APPROVAL_TTL_MS
+  });
 
   return getProvider(providerId, {
     model,
@@ -146,6 +166,19 @@ async function resolveProvider(rawRequest, rootDir) {
     approval,
     receiptSink
   });
+}
+
+function resolveModel(providerId) {
+  if (providerId === 'openai') {
+    return typeof process.env.OPENAI_MODEL === 'string' &&
+      process.env.OPENAI_MODEL.trim().length > 0
+      ? process.env.OPENAI_MODEL.trim()
+      : DEFAULT_OPENAI_MODEL;
+  }
+  return typeof process.env.GEMINI_MODEL === 'string' &&
+    process.env.GEMINI_MODEL.trim().length > 0
+    ? process.env.GEMINI_MODEL.trim()
+    : DEFAULT_MODEL;
 }
 
 function verifyPathRoot() {

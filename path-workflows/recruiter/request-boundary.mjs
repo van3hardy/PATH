@@ -1,10 +1,13 @@
 import { PROVIDER_IDS } from '../../path-brain/provider-ids.mjs';
 
 const REQUEST_SCHEMA = 'path.recruiter.request.v1';
-const OBJECTIVE = 'draft_first_touch';
-const PROMPT_VERSION = 'path-recruiter-v1';
+const FIRST_TOUCH_OBJECTIVE = 'draft_first_touch';
+const FIRST_TOUCH_PROMPT_VERSION = 'path-recruiter-v1';
+const REPLY_OBJECTIVE = 'draft_email_reply';
+const REPLY_PROMPT_VERSION = 'path-reply-v1';
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
+const MAX_REPLY_SNIPPET_CHARS = 1000;
 const RUN_ID = /^run-[a-z0-9-]+$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -22,7 +25,17 @@ const TOP_LEVEL_KEYS = new Set([
   'disclosurePolicy',
   'provider',
   'requestApproval',
-  'evidenceRefs'
+  'evidenceRefs',
+  'replyContext'
+]);
+
+const REPLY_CONTEXT_KEYS = new Set([
+  'candidateMessageId',
+  'originalSubject',
+  'bodySnippet',
+  'threadId',
+  'inReplyTo',
+  'references'
 ]);
 
 const EVIDENCE_KEYS = new Set([
@@ -51,11 +64,13 @@ export function validateRecruiterRequest(raw, { now, idFactory } = {}) {
   collectUnexpectedKeys(raw, TOP_LEVEL_KEYS, '', details);
 
   if (raw.schemaVersion !== REQUEST_SCHEMA) details.push('schemaVersion');
-  if (raw.objective !== OBJECTIVE) details.push('objective');
+  const isFirstTouch = raw.objective === FIRST_TOUCH_OBJECTIVE;
+  const isReply = raw.objective === REPLY_OBJECTIVE;
+  if (!isFirstTouch && !isReply) details.push('objective');
   if (!hasExactKeys(raw.action, ['type', 'channel', 'touch']) ||
       raw.action.type !== 'send_email' ||
       raw.action.channel !== 'email' ||
-      raw.action.touch !== 'first') {
+      raw.action.touch !== (isReply ? 'reply' : 'first')) {
     details.push('action');
   }
   if (!isRecord(raw.recipient)) {
@@ -72,13 +87,16 @@ export function validateRecruiterRequest(raw, { now, idFactory } = {}) {
     if (!isNonemptyString(raw.opportunity.company)) details.push('opportunity.company');
     if (!isNonemptyString(raw.opportunity.role)) details.push('opportunity.role');
   }
-  if (raw.promptVersion !== PROMPT_VERSION) details.push('promptVersion');
+  const expectedPromptVersion = isReply ? REPLY_PROMPT_VERSION : FIRST_TOUCH_PROMPT_VERSION;
+  if (raw.promptVersion !== expectedPromptVersion) details.push('promptVersion');
   if (raw.voiceProfile !== VOICE_PROFILE) details.push('voiceProfile');
   if (raw.disclosurePolicy !== DISCLOSURE_POLICY) details.push('disclosurePolicy');
   if (!PROVIDER_IDS.includes(raw.provider)) details.push('provider');
 
   const requestApproval = validateRequestApproval(raw.requestApproval, current, details);
   const evidenceRefs = validateEvidenceRefs(raw.evidenceRefs, current, details);
+  const replyContext = isReply ? validateReplyContext(raw.replyContext, details) : null;
+  if (!isReply && raw.replyContext !== undefined) details.push('replyContext');
 
   let runId = raw.runId;
   if (runId === undefined) {
@@ -97,8 +115,15 @@ export function validateRecruiterRequest(raw, { now, idFactory } = {}) {
     schemaVersion: REQUEST_SCHEMA,
     runId,
     createdAt: created.toISOString(),
-    objective: OBJECTIVE,
-    action: { type: 'send_email', channel: 'email', touch: 'first' },
+    objective: isReply ? REPLY_OBJECTIVE : FIRST_TOUCH_OBJECTIVE,
+    action: {
+      type: 'send_email',
+      channel: 'email',
+      touch: isReply ? 'reply' : 'first',
+      ...(isReply && replyContext.threadId ? { threadId: replyContext.threadId } : {}),
+      ...(isReply && replyContext.inReplyTo ? { inReplyTo: replyContext.inReplyTo } : {}),
+      ...(isReply && replyContext.references ? { references: replyContext.references } : {})
+    },
     recipient: {
       name: raw.recipient.name.trim(),
       address: raw.recipient.address.trim()
@@ -107,13 +132,52 @@ export function validateRecruiterRequest(raw, { now, idFactory } = {}) {
       company: raw.opportunity.company.trim(),
       role: raw.opportunity.role.trim()
     },
-    promptVersion: PROMPT_VERSION,
+    promptVersion: expectedPromptVersion,
     voiceProfile: VOICE_PROFILE,
     disclosurePolicy: DISCLOSURE_POLICY,
     provider: raw.provider,
     requestApproval,
-    evidenceRefs
+    evidenceRefs,
+    ...(isReply ? { replyContext } : {})
   });
+}
+
+function validateReplyContext(value, details) {
+  if (!isRecord(value)) {
+    details.push('replyContext');
+    return {};
+  }
+  collectUnexpectedKeys(value, REPLY_CONTEXT_KEYS, 'replyContext.', details);
+  if (!isNonemptyString(value.candidateMessageId)) details.push('replyContext.candidateMessageId');
+  if (!isNonemptyString(value.originalSubject)) details.push('replyContext.originalSubject');
+  if (!isNonemptyString(value.bodySnippet)) details.push('replyContext.bodySnippet');
+  if (isNonemptyString(value.bodySnippet) &&
+      value.bodySnippet.trim().length > MAX_REPLY_SNIPPET_CHARS) {
+    details.push('replyContext.bodySnippet');
+  }
+  if (Object.hasOwn(value, 'threadId') && !isNonemptyString(value.threadId)) {
+    details.push('replyContext.threadId');
+  }
+  if (Object.hasOwn(value, 'inReplyTo') && !isNonemptyString(value.inReplyTo)) {
+    details.push('replyContext.inReplyTo');
+  }
+  if (Object.hasOwn(value, 'references') && !isNonemptyString(value.references)) {
+    details.push('replyContext.references');
+  }
+  return {
+    candidateMessageId: isNonemptyString(value.candidateMessageId)
+      ? value.candidateMessageId.trim()
+      : value.candidateMessageId,
+    originalSubject: isNonemptyString(value.originalSubject)
+      ? value.originalSubject.trim()
+      : value.originalSubject,
+    bodySnippet: isNonemptyString(value.bodySnippet)
+      ? value.bodySnippet.trim()
+      : value.bodySnippet,
+    ...(isNonemptyString(value.threadId) ? { threadId: value.threadId.trim() } : {}),
+    ...(isNonemptyString(value.inReplyTo) ? { inReplyTo: value.inReplyTo.trim() } : {}),
+    ...(isNonemptyString(value.references) ? { references: value.references.trim() } : {})
+  };
 }
 
 function validateRequestApproval(value, current, details) {

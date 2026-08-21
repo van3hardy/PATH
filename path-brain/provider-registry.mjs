@@ -14,6 +14,10 @@ export async function getProvider(id, options = {}) {
     const module = await import('./no-model-provider.mjs');
     return module.noModelProvider;
   }
+  if (id === 'openai') {
+    const module = await import('./openai-provider.mjs');
+    return module.createOpenAIProvider(options);
+  }
   const module = await import('./gemini-provider.mjs');
   return module.createGeminiProvider(options);
 }

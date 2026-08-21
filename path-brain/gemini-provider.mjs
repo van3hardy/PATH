@@ -6,7 +6,8 @@ import { normalizeText } from '../path-safety/fact-resolver.mjs';
 import { DEFAULT_MODEL } from './provider-ids.mjs';
 
 const OUTPUT_SCHEMA = 'path.brain.output.v1';
-const PROMPT_VERSION = 'path-recruiter-v1';
+const FIRST_TOUCH_OBJECTIVE = 'draft_first_touch';
+const REPLY_OBJECTIVE = 'draft_email_reply';
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
 const DISCLOSURE_PHRASE = "Prepared with Path, Van's AI recruiting assistant.";
@@ -17,7 +18,7 @@ export function createGeminiProvider(options = {}) {
     model = DEFAULT_MODEL,
     apiKey,
     runId = null,
-    objective = 'draft_first_touch',
+    objective = FIRST_TOUCH_OBJECTIVE,
     approvalAuthority = null,
     approval = null,
     receiptSink = null,
@@ -29,24 +30,28 @@ export function createGeminiProvider(options = {}) {
   }
   const effectiveTransport = transport ?? defaultTransport;
 
-  const gatewayEnabled = approvalAuthority !== null &&
-    approval !== null && receiptSink !== null;
+  const gatewayParams = [approvalAuthority, approval, receiptSink];
+  const providedCount = gatewayParams.filter((value) => value !== null).length;
+  if (providedCount > 0 && providedCount < 3) {
+    throw codedError('INVALID_GEMINI_PROVIDER_OPTIONS');
+  }
+  const gatewayEnabled = providedCount === 3;
 
   return Object.freeze({
-    async generate(input) {
+    async generate(input, { signal } = {}) {
       const text = gatewayEnabled
-        ? await gatewayGenerate(input)
+        ? await gatewayGenerate(input, signal)
         : await effectiveTransport({
             model,
             apiKey: resolveApiKey(apiKey),
             prompt: buildPrompt(input)
-          });
+          }, { signal });
       const output = applyClaimDiscipline(input, text, model);
       return deepFreeze(output);
     }
   });
 
-  async function gatewayGenerate(input) {
+  async function gatewayGenerate(input, signal) {
     const prompt = buildPrompt(input);
     const intent = buildCapabilityIntent({
       capabilityId: 'model.invoke',
@@ -57,16 +62,24 @@ export function createGeminiProvider(options = {}) {
     });
     const approvedIntent = buildCapabilityIntent({ ...intent, approval });
     const executed = await executeCapability(approvedIntent, () =>
-      effectiveTransport({ model, apiKey: resolveApiKey(apiKey), prompt }), {
+      effectiveTransport({ model, apiKey: resolveApiKey(apiKey), prompt }, { signal }), {
         now,
         receiptSink,
         approvalAuthority
       });
+    if (executed.decision !== 'ALLOW') {
+      throw codedError('BLOCKED_CAPABILITY_DENIED', executed.code);
+    }
     return executed.result;
   }
 }
 
 function buildPrompt(input) {
+  if (input?.objective === REPLY_OBJECTIVE) return buildReplyPrompt(input);
+  return buildFirstTouchPrompt(input);
+}
+
+function buildFirstTouchPrompt(input) {
   const recipientName = input?.recipient?.name ?? 'Hiring Manager';
   const role = input?.opportunity?.role ?? '';
   const company = input?.opportunity?.company ?? '';
@@ -83,6 +96,38 @@ function buildPrompt(input) {
     `Recipient name: ${recipientName}`,
     `Opportunity role: ${role}`,
     `Opportunity company: ${company}`,
+    '',
+    'Approved evidence sentences (include ALL of them verbatim):',
+    ...quotes.map((quote) => `- ${quote}`),
+    '',
+    'Required closing (include verbatim at the end):',
+    `Best,\nVan\n${DISCLOSURE_PHRASE}`,
+    '',
+    'Return ONLY the final email text. Do not include commentary, JSON, or markdown fences.'
+  ].join('\n');
+}
+
+function buildReplyPrompt(input) {
+  const recipientName = input?.recipient?.name ?? 'Recruiter';
+  const role = input?.opportunity?.role ?? '';
+  const company = input?.opportunity?.company ?? '';
+  const originalSubject = input?.replyContext?.originalSubject ?? '';
+  const bodySnippet = input?.replyContext?.bodySnippet ?? '';
+  const quotes = Array.isArray(input?.evidence)
+    ? input.evidence.map((item) => item.quote).filter(isNonemptyString)
+    : [];
+
+  return [
+    'You are drafting a reply email on behalf of Van, an AI recruiting assistant.'.trim(),
+    'The reply must be concise, respectful, and grounded ONLY in the approved evidence sentences provided below.'.trim(),
+    'You MUST include every approved evidence sentence verbatim in the body, unchanged. Do not paraphrase or embellish any of them.'.trim(),
+    'Do not invent facts, availability, salary expectations, or commitments that are not present in the approved evidence.'.trim(),
+    '',
+    `Recipient name: ${recipientName}`,
+    `Opportunity role: ${role}`,
+    `Opportunity company: ${company}`,
+    `Original subject: ${originalSubject}`,
+    `Original message snippet: ${bodySnippet}`,
     '',
     'Approved evidence sentences (include ALL of them verbatim):',
     ...quotes.map((quote) => `- ${quote}`),
@@ -121,7 +166,10 @@ function applyClaimDiscipline(input, transportResult, providerModel) {
       claims.push(canonical);
     }
   }
-  if (claims.length === 0) throw codedError('FAILED_BRAIN_PROVIDER');
+  const approvedCount = new Set(approvedQuotes.map((quote) => normalizeText(quote))).size;
+  if (claims.length === 0 || claims.length !== approvedCount) {
+    throw codedError('FAILED_BRAIN_PROVIDER');
+  }
 
   let text = modelText;
   if (!normalizedText.includes(normalizeText(DISCLOSURE_PHRASE))) {
@@ -132,7 +180,7 @@ function applyClaimDiscipline(input, transportResult, providerModel) {
     schemaVersion: OUTPUT_SCHEMA,
     provider: 'gemini',
     model: providerModel,
-    promptVersion: PROMPT_VERSION,
+    promptVersion: input.promptVersion,
     voiceProfile: VOICE_PROFILE,
     disclosurePolicy: DISCLOSURE_POLICY,
     disclosureIncluded: true,
@@ -141,7 +189,7 @@ function applyClaimDiscipline(input, transportResult, providerModel) {
   };
 }
 
-async function defaultTransport({ model, apiKey, prompt }) {
+async function defaultTransport({ model, apiKey, prompt }, { signal } = {}) {
   if (!isNonemptyString(apiKey)) throw codedError('BLOCKED_NO_GEMINI_KEY');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   let response;
@@ -149,7 +197,8 @@ async function defaultTransport({ model, apiKey, prompt }) {
     response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      signal
     });
   } catch (error) {
     throw wrapProviderError(error);

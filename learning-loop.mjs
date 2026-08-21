@@ -75,7 +75,17 @@ export function readOutcomeFeedback(outcomesDir = DEFAULT_OUTCOMES) {
     const logPath = join(outcomesDir, entry.name, 'outcome.md');
     const content = readIfExists(logPath);
     if (!content) continue;
-    const [, num, company, role] = /^(\d+)_(.+)_(.+)$/.exec(entry.name) || [];
+    const match = /^(\d+)_(.+)$/.exec(entry.name);
+    let num = null;
+    let company = null;
+    let role = null;
+    if (match) {
+      num = match[1];
+      const rest = match[2];
+      const sep = rest.indexOf('_');
+      company = sep === -1 ? rest : rest.slice(0, sep);
+      role = sep === -1 ? null : rest.slice(sep + 1);
+    }
     const blocks = content.split(/\n(?=## Entry: )/);
     for (const block of blocks) {
       const dateMatch = /^## Entry:\s*(\S+)/m.exec(block);
@@ -113,7 +123,7 @@ export function readReports(appsFile = DEFAULT_APPS, reportsDir = DEFAULT_REPORT
   if (!apps) return [];
   const parsed = [];
   for (const line of apps.split('\n')) {
-    if (!/^\\|/.test(line.trim())) continue;
+    if (!/^\|/.test(line.trim())) continue;
     const cols = line.trim().replace(/^\|/, '').split('|').map((s) => s.trim());
     if (cols.length < 9) continue;
     const num = cols[0];

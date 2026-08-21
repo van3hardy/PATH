@@ -7,13 +7,19 @@ const HEX_64 = /^[a-f0-9]{64}$/;
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
 const POLICY_VERSION = 'path-safety-v1';
-const PROMPT_VERSION = 'path-recruiter-v1';
+const FIRST_TOUCH_PROMPT_VERSION = 'path-recruiter-v1';
+const REPLY_PROMPT_VERSION = 'path-reply-v1';
 const PROVIDER = 'fake';
-const MODEL = 'deterministic-recruiter-template-v1';
+const FIRST_TOUCH_MODEL = 'deterministic-recruiter-template-v1';
+const REPLY_MODEL = 'deterministic-reply-template-v1';
 const PACKET_TTL_MS = 24 * 60 * 60 * 1000;
 
-function hasValidProviderModel(provider, model) {
-  if (provider === PROVIDER && model === MODEL) return true;
+function hasValidPromptProviderModel(promptVersion, provider, model) {
+  if (provider === PROVIDER &&
+      ((promptVersion === FIRST_TOUCH_PROMPT_VERSION && model === FIRST_TOUCH_MODEL) ||
+       (promptVersion === REPLY_PROMPT_VERSION && model === REPLY_MODEL))) {
+    return true;
+  }
   return REAL_PROVIDER_IDS.includes(provider) && isNonemptyString(model);
 }
 
@@ -89,8 +95,8 @@ function hasValidPacketStructure(packet) {
       packet.disclosurePolicy !== DISCLOSURE_POLICY ||
       packet.disclosureIncluded !== true ||
       packet.policyVersion !== POLICY_VERSION ||
-      packet.promptVersion !== PROMPT_VERSION ||
-      !hasValidProviderModel(packet.provider, packet.model) ||
+      ![FIRST_TOUCH_PROMPT_VERSION, REPLY_PROMPT_VERSION].includes(packet.promptVersion) ||
+      !hasValidPromptProviderModel(packet.promptVersion, packet.provider, packet.model) ||
       !HEX_16.test(packet.id) ||
       !HEX_64.test(packet.integritySha256) ||
       !HEX_24.test(packet.idempotencyKey)) {

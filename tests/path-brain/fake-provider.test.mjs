@@ -7,6 +7,11 @@ import {
   renderRequestFrame,
   TEMPLATE_SEGMENTS
 } from '../../path-brain/recruiter-template.mjs';
+import {
+  renderReplyTemplate,
+  renderReplyFrame,
+  REPLY_TEMPLATE_SEGMENTS
+} from '../../path-brain/reply-template.mjs';
 
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
@@ -41,6 +46,44 @@ function validInput() {
   };
 }
 
+function validReplyInput() {
+  return {
+    schemaVersion: 'path.brain.request.v1',
+    promptVersion: 'path-reply-v1',
+    objective: 'draft_email_reply',
+    recipient: { name: 'Recruiter', address: 'recruiter@example.test' },
+    opportunity: { company: 'Example Company', role: 'AI Engineer' },
+    voiceProfile: VOICE_PROFILE,
+    disclosurePolicy: DISCLOSURE_POLICY,
+    replyContext: {
+      candidateMessageId: 'gmail-message-123',
+      originalSubject: 'AI Engineer @ Example Company',
+      bodySnippet: 'Could you share a few times that work for Van?',
+      threadId: 'thread-123',
+      inReplyTo: '<original@example.test>',
+      references: '<root@example.test> <original@example.test>'
+    },
+    evidence: [{
+      id: 'fact-1',
+      factKey: 'workflow-platform',
+      source: 'cv.md',
+      quote: CLAIM
+    }]
+  };
+}
+
+const EXACT_REPLY_TEXT = `Hello Recruiter,
+
+Thanks for reaching out about the AI Engineer opportunity at Example Company.
+
+Van builds agent workflows on Windows 11 with PowerShell.
+
+Could you share a few times that work for Van?
+
+Best,
+Van
+Prepared with Path, Van's AI recruiting assistant.`;
+
 test('renderRecruiterTemplate returns the exact fixed complete recruiter draft', () => {
   assert.deepEqual(renderRecruiterTemplate(validInput()), {
     text: EXACT_TEXT,
@@ -58,6 +101,30 @@ test('fakeProvider returns the exact deterministic output', async () => {
     model: 'deterministic-recruiter-template-v1',
     promptVersion: 'path-recruiter-v1',
     text: EXACT_TEXT,
+    claims: [CLAIM],
+    voiceProfile: VOICE_PROFILE,
+    disclosurePolicy: DISCLOSURE_POLICY,
+    disclosureIncluded: true
+  });
+});
+
+test('renderReplyTemplate returns the exact fixed complete reply draft', () => {
+  assert.deepEqual(renderReplyTemplate(validReplyInput()), {
+    text: EXACT_REPLY_TEXT,
+    claims: [CLAIM],
+    voiceProfile: VOICE_PROFILE,
+    disclosurePolicy: DISCLOSURE_POLICY,
+    disclosureIncluded: true
+  });
+});
+
+test('fakeProvider returns the exact deterministic reply output', async () => {
+  assert.deepEqual(await fakeProvider.generate(validReplyInput()), {
+    schemaVersion: 'path.brain.output.v1',
+    provider: 'fake',
+    model: 'deterministic-reply-template-v1',
+    promptVersion: 'path-reply-v1',
+    text: EXACT_REPLY_TEXT,
     claims: [CLAIM],
     voiceProfile: VOICE_PROFILE,
     disclosurePolicy: DISCLOSURE_POLICY,
@@ -172,4 +239,19 @@ test('template exports the request frame and fixed segments it renders with', ()
     "Best,\nVan\nPrepared with Path, Van's AI recruiting assistant."
   ]);
   assert.ok(Object.isFrozen(TEMPLATE_SEGMENTS));
+});
+
+test('reply template exports the reply frame and fixed segments it renders with', () => {
+  const frame = renderReplyFrame({
+    recipient: { name: 'Recruiter' },
+    opportunity: { company: 'Example Company', role: 'AI Engineer' }
+  });
+  assert.equal(
+    frame,
+    'Hello Recruiter,\n\nThanks for reaching out about the AI Engineer opportunity at Example Company.'
+  );
+  assert.deepEqual(REPLY_TEMPLATE_SEGMENTS, [
+    "Best,\nVan\nPrepared with Path, Van's AI recruiting assistant."
+  ]);
+  assert.ok(Object.isFrozen(REPLY_TEMPLATE_SEGMENTS));
 });

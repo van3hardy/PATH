@@ -189,6 +189,65 @@ function installGeminiGatewayStub(rootDir) {
   ].join('\n'), 'utf8');
 }
 
+function installOpenAIGatewayStub(rootDir) {
+  const providerPath = path.join(rootDir, 'path-brain', 'openai-provider.mjs');
+  fs.writeFileSync(providerPath, [
+    "import fs from 'node:fs';",
+    "import path from 'node:path';",
+    "import { fileURLToPath } from 'node:url';",
+    "import { buildCapabilityIntent, executeCapability } from '../path-safety/capability-gateway.mjs';",
+    '',
+    "const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');",
+    "const markerPath = path.join(rootDir, 'openai-gateway-options.json');",
+    "export function createOpenAIProvider(options = {}) {",
+    "  fs.writeFileSync(markerPath, JSON.stringify({",
+    "    model: options.model ?? null,",
+    "    runId: options.runId ?? null,",
+    "    objective: options.objective ?? null,",
+    "    approvalAuthority: typeof options.approvalAuthority === 'object' ? true : false,",
+    "    approval: options.approval ?? null,",
+    "    receiptSink: typeof options.receiptSink === 'function' ? true : false",
+    "  }, null, 2), 'utf8');",
+    "  return Object.freeze({",
+    "    async generate(input) {",
+    "      if (!options.approvalAuthority || !options.approval || !options.receiptSink) {",
+    "        throw Object.assign(new Error('FAILED_BRAIN_PROVIDER'), { code: 'FAILED_BRAIN_PROVIDER' });",
+    "      }",
+    "      const intent = buildCapabilityIntent({",
+    "        capabilityId: 'model.invoke',",
+    "        actor: 'system',",
+    "        metadata: { runId: options.runId, provider: 'openai', model: options.model, objective: options.objective },",
+    "        resources: [{ type: 'model', id: 'openai' }],",
+    "        approval: null",
+    "      });",
+    "      const approvedIntent = buildCapabilityIntent({ ...intent, approval: options.approval });",
+    "      const executed = await executeCapability(approvedIntent, () => ({ text: 'ok' }), {",
+    "        now: () => new Date(),",
+    "        receiptSink: options.receiptSink,",
+    "        approvalAuthority: options.approvalAuthority",
+    "      });",
+    "      if (executed.decision !== 'ALLOW') {",
+    "        throw Object.assign(new Error('FAILED_BRAIN_PROVIDER'), { code: 'FAILED_BRAIN_PROVIDER' });",
+    "      }",
+    "      const quote = input.evidence?.[0]?.quote ?? 'ok';",
+    "      return {",
+    "        schemaVersion: 'path.brain.output.v1',",
+    "        provider: 'openai',",
+    "        model: options.model,",
+    "        promptVersion: 'path-recruiter-v1',",
+    "        voiceProfile: 'path-recruiter-persistent-respectful-v1',",
+    "        disclosurePolicy: 'always-disclose-ai-assistance-v1',",
+    "        disclosureIncluded: true,",
+    "        claims: [quote],",
+    "        text: `${quote}\\n\\nBest,\\nVan`",
+    "      };",
+    "    }",
+    "  });",
+    "}",
+    ''
+  ].join('\n'), 'utf8');
+}
+
 function allRelativeFiles(rootDir) {
   const files = [];
   function walk(directory) {
@@ -432,6 +491,46 @@ test('gemini request wires the model.invoke gateway, runs ALLOW, and records cap
   assert.equal(fs.existsSync(markerPath), true);
   const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
   assert.equal(marker.model, 'gemini-3.6-flash');
+  assert.equal(marker.runId, 'run-cli-fixture-001');
+  assert.equal(marker.objective, 'draft_first_touch');
+  assert.equal(marker.approvalAuthority, true);
+  assert.equal(marker.receiptSink, true);
+  assert.ok(marker.approval && typeof marker.approval === 'object');
+  assert.equal(marker.approval.source, 'human');
+  assert.equal(marker.approval.approvedBy, 'Van');
+
+  const receiptsPath = path.join(rootDir, 'data', 'path-capability-receipts.jsonl');
+  assert.equal(fs.existsSync(receiptsPath), true);
+  const receipts = fs.readFileSync(receiptsPath, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.ok(receipts.some((receipt) => receipt.event === 'capability_attempted'));
+  assert.ok(receipts.some((receipt) => receipt.event === 'capability_succeeded'));
+  assert.ok(receipts.every((receipt) => receipt.capabilityId === 'model.invoke'));
+});
+
+test('openai request wires the model.invoke gateway, runs ALLOW, and records capability receipts', (t) => {
+  const rootDir = makeSyntheticPathRoot(t);
+  installOpenAIGatewayStub(rootDir);
+  const approvedAt = new Date().toISOString();
+  const requestPath = writeRequest(rootDir, (request) => {
+    request.provider = 'openai';
+    request.requestApproval.approvedAt = approvedAt;
+  });
+  const env = { ...process.env, OPENAI_MODEL: 'gpt-4o-mini' };
+  const result = runCli(rootDir, [requestPath, '--local-only'], { env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.resultCode, 'LOCAL_REVIEW_READY');
+  assert.equal(output.status, 'HUMAN_REVIEW');
+
+  const markerPath = path.join(rootDir, 'openai-gateway-options.json');
+  assert.equal(fs.existsSync(markerPath), true);
+  const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  assert.equal(marker.model, 'gpt-4o-mini');
   assert.equal(marker.runId, 'run-cli-fixture-001');
   assert.equal(marker.objective, 'draft_first_touch');
   assert.equal(marker.approvalAuthority, true);

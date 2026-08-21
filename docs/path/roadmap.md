@@ -82,14 +82,14 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 
 ## Phase 3 — Communications hub / transport
 
-> **Goal:** The largest gap (#6, 20% done). Outbox + approval gate exist; **no transport/send channel anywhere.** Exit = a human-approved packet actually sends.
+> **Goal:** The largest gap (#6). Outbox + approval gate exist; Gmail transport and local/fake dispatch proof now exist. Exit = a human-approved packet actually sends through the approved Gmail path.
 
 | # | Work | Design exists? | Status |
 |---|---|---|---|
-| 3.1 | Gmail send (production email outbound) | `2026-08-08-gmail-send-design.md` | ⬜ |
-| 3.2 | Auto email reply (reply classification exists; send doesn't) | — | ⬜ |
-| 3.3 | LinkedIn outreach send | Drafts-only today (`modes/contacto.md`, `modes/email.md`); `send_linkedin` exists as a YELLOW policy type only | 🔶 deferred |
-| 3.4 | Calling / voicemail / telephony | Not on this roadmap | 🔶 deferred |
+| 3.1 | Gmail send (production email outbound) | `2026-08-08-gmail-send-design.md` | ✅ live verified 2026-08-21 — owner-approved smoke send to van1hardy@hotmail.com through the dispatch gate (`dispatch_completed`, Gmail messageId `1a0222f95c62b207`) |
+| 3.2 | Auto email reply (scanner candidate → reply request → PATH Brain draft → approval packet → threaded fake dispatch) | `2026-08-20-phase3-auto-reply-design.md` | ✅ local/fake verified; never auto-sends |
+| 3.3 | LinkedIn outreach send | `transports/linkedin-send.mjs` (relay adapter seam) | ✅ transport built 2026-08-21 — fake-verified through the dispatch gate (`providerId: linkedin`); live send requires a configured relay (`PATH_LINKEDIN_RELAY_URL`) since LinkedIn has no public send API |
+| 3.4 | Calling / voicemail / telephony | `transports/telephony-call.mjs` (relay adapter seam); `place_call` is a YELLOW policy type | ✅ transport built 2026-08-21 — fake-verified through the dispatch gate (`providerId: telephony`); live calls require a configured telephony relay (`PATH_TELEPHONY_RELAY_URL`, e.g. Twilio-style) |
 
 **Skill gate:** `brainstorming` → `da`/`dave` (high-stakes: real send = real consequences) → `writing-plans` → `coding-standards` → `subagent-driven-development` with `plan` + `orchestrate` → `verification-before-completion`.
 **Exit criterion:** a packet built by the approval pipeline sends via Gmail with the audit ledger + outbox reconciled. User reviews before every send — never auto-send.
@@ -102,11 +102,11 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 
 | # | Work | Status |
 |---|---|---|
-| 4.1 | Scheduler (scan cadence, follow-up cadence, reply-watch cadence) | ⬜ |
-| 4.2 | Production deployment path (packaged desktop shell exists; scheduler + headless ops don't) | ⬜ |
+| 4.1 | Scheduler (scan cadence, follow-up cadence, reply-watch cadence) | ✅ |
+| 4.2 | Production deployment path (packaged desktop shell exists; scheduler + headless ops don't) | ✅ task registered 2026-08-21 |
 
 **Skill gate:** `plan` → `da` → `subagent-driven-development` → `verification-before-completion`.
-**Exit criterion:** a scheduled pipeline run executes unattended; approval-gated actions still stop at HUMAN_REVIEW.
+**Exit criterion:** local scheduled runs execute unattended; approval-gated actions still stop at HUMAN_REVIEW. Windows task **"Path Phase 4 Scheduler"** was explicitly approved by Van and registered 2026-08-21 (hourly, current user, limited privileges, no stored Gmail credentials); installer `-WhatIf`/`-Uninstall -WhatIf` verified; fixed `LogonType InteractiveToken` → `Interactive`. First real unattended run: scan + followup success, reply_watch failed CLOSED (`LIST_FAILED` — scheduled-task process does not load repo `.env`, so Gmail creds are absent; no send/mutation occurred).
 
 ---
 

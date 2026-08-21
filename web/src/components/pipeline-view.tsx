@@ -23,6 +23,7 @@ const TABS = [
   "REJECTED",
   "DISCARDED",
   "SKIP",
+  "HIRED",
 ] as const;
 type Tab = (typeof TABS)[number];
 

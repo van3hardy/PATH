@@ -75,6 +75,7 @@ export async function runRecruiterWorkflow(options = {}) {
       opportunity: request.opportunity,
       voiceProfile: request.voiceProfile,
       disclosurePolicy: request.disclosurePolicy,
+      ...(request.replyContext ? { replyContext: request.replyContext } : {}),
       evidence: selection.items.map((item) => ({
         id: item.id,
         factKey: item.factKey,

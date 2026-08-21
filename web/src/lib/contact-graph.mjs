@@ -46,6 +46,10 @@ export function parsePathContacts(raw) {
       continue; // malformed line skipped, never thrown
     }
     if (!entry || typeof entry !== "object" || typeof entry.contactId !== "string") continue;
+    // Tombstone: a superseded name-only row (email promotion). Skipped so the
+    // web read model resolves to the same single live record per person as the
+    // core loader loadContacts().
+    if (typeof entry.supersededBy === "string" && entry.supersededBy.trim() !== "") continue;
     contacts.set(entry.contactId, entry); // last line per contactId wins
   }
   return [...contacts.values()].sort((a, b) => {

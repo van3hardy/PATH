@@ -25,6 +25,32 @@ function validInput() {
   };
 }
 
+function validReplyInput() {
+  return {
+    schemaVersion: 'path.brain.request.v1',
+    promptVersion: 'path-reply-v1',
+    objective: 'draft_email_reply',
+    recipient: { name: 'Recruiter', address: 'recruiter@example.test' },
+    opportunity: { company: 'Example Company', role: 'AI Engineer' },
+    voiceProfile: VOICE_PROFILE,
+    disclosurePolicy: DISCLOSURE_POLICY,
+    replyContext: {
+      candidateMessageId: 'gmail-message-123',
+      originalSubject: 'AI Engineer @ Example Company',
+      bodySnippet: 'Could you share a few times that work for Van?',
+      threadId: 'thread-123',
+      inReplyTo: '<original@example.test>',
+      references: '<root@example.test> <original@example.test>'
+    },
+    evidence: [{
+      id: 'fact-1',
+      factKey: 'workflow-platform',
+      source: 'cv.md',
+      quote: CLAIM
+    }]
+  };
+}
+
 function validOutput(overrides = {}) {
   return {
     schemaVersion: 'path.brain.output.v1',
@@ -39,6 +65,71 @@ function validOutput(overrides = {}) {
     ...overrides
   };
 }
+
+test('runBrain accepts the bounded reply objective and forwards reply context only', async () => {
+  const input = validReplyInput();
+  input.replyContext.rawBody = 'must-not-cross-boundary';
+  input.replyContext.extra = 'must-not-cross-boundary';
+  input.replyContext.threadId = 'thread-123';
+  input.replyContext.references = '<root@example.test> <original@example.test>';
+  input.stylePrompt = 'be casual';
+
+  let received;
+  const provider = {
+    async generate(value) {
+      received = value;
+      return validOutput({
+        promptVersion: 'path-reply-v1',
+        text: `Thanks for reaching out. ${CLAIM}`
+      });
+    }
+  };
+
+  const result = await runBrain(provider, input, { timeoutMs: 100 });
+
+  assert.deepEqual(received, {
+    schemaVersion: 'path.brain.request.v1',
+    promptVersion: 'path-reply-v1',
+    objective: 'draft_email_reply',
+    recipient: { name: 'Recruiter', address: 'recruiter@example.test' },
+    opportunity: { company: 'Example Company', role: 'AI Engineer' },
+    voiceProfile: VOICE_PROFILE,
+    disclosurePolicy: DISCLOSURE_POLICY,
+    replyContext: {
+      candidateMessageId: 'gmail-message-123',
+      originalSubject: 'AI Engineer @ Example Company',
+      bodySnippet: 'Could you share a few times that work for Van?',
+      threadId: 'thread-123',
+      inReplyTo: '<original@example.test>',
+      references: '<root@example.test> <original@example.test>'
+    },
+    evidence: [{
+      id: 'fact-1',
+      factKey: 'workflow-platform',
+      source: 'cv.md',
+      quote: CLAIM
+    }]
+  });
+  assert.equal(result.promptVersion, 'path-reply-v1');
+  assert.deepEqual(result.claims, [CLAIM]);
+});
+
+test('runBrain rejects mismatched prompt version and reply objective pairs', async () => {
+  const invalidCases = [
+    () => { const input = validReplyInput(); input.promptVersion = 'path-recruiter-v1'; return input; },
+    () => { const input = validInput(); input.objective = 'draft_email_reply'; return input; },
+    () => { const input = validReplyInput(); delete input.replyContext; return input; },
+    () => { const input = validReplyInput(); input.replyContext.bodySnippet = ' '; return input; }
+  ];
+  for (const createInput of invalidCases) {
+    let calls = 0;
+    await assert.rejects(
+      runBrain({ generate() { calls += 1; } }, createInput(), { timeoutMs: 100 }),
+      (error) => error.code === 'BLOCKED_INVALID_BRAIN_INPUT'
+    );
+    assert.equal(calls, 0);
+  }
+});
 
 test('runBrain sends one new bounded request and returns a deep-frozen copy', async () => {
   const input = validInput();

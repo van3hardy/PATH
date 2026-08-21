@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { careerOpsRoot } from "@/lib/career-ops";
 
 /**
@@ -27,6 +27,7 @@ const FALLBACK: CanonicalState[] = [
   { id: "rejected", label: "Rejected", aliases: ["rechazado", "rechazada"], description: "Rejected by company", group: "rejected" },
   { id: "discarded", label: "Discarded", aliases: ["descartado", "descartada", "cerrada", "cancelada"], description: "Discarded by candidate or offer closed", group: "discarded" },
   { id: "skip", label: "SKIP", aliases: ["no_aplicar", "no aplicar", "skip", "monitor"], description: "Doesn't fit, don't apply", group: "skip" },
+  { id: "hired", label: "Hired", aliases: ["contratado", "contratada", "hired", "accepted", "accept", "kabul edildi", "kabul_edildi", "işe alındı", "ise alindi", "işe alindi"], description: "Offer accepted, job landed!", group: "hired" },
 ];
 
 let cache: CanonicalState[] | null = null;

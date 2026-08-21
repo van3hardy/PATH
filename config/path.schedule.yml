@@ -1,0 +1,21 @@
+version: path-schedule-v1
+timezone: America/New_York
+lockTtlMinutes: 60
+jobs:
+  scan:
+    enabled: true
+    everyHours: 72
+    command: ["node", "scan.mjs"]
+    mode: local_write_only
+  followup:
+    enabled: true
+    everyHours: 24
+    command: ["node", "followup-cadence.mjs", "--json"]
+    mode: review_only
+  reply_watch:
+    enabled: true
+    everyHours: 2
+    command: ["node", "gmail-scan-replies.mjs", "--days", "7"]
+    after:
+      - ["node", "reply-watch.mjs", "--no-apply", "--json"]
+    mode: review_only

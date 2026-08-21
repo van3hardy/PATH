@@ -9,6 +9,7 @@
  *
  * Usage:
  *   node reply-watch.mjs [path/to/candidates.json]
+ *   node reply-watch.mjs --no-apply --json [path/to/candidates.json]
  */
 
 import fs from 'node:fs';
@@ -209,15 +210,43 @@ async function updateTrackerStatuses(updates) {
 }
 
 const KNOWN_FLAGS = ['--help', '-h'];
-const USAGE = 'Usage: node reply-watch.mjs [path/to/candidates.json]';
+const USAGE = 'Usage: node reply-watch.mjs [path/to/candidates.json] [--no-apply] [--json]';
+
+function buildReviewResult(matched, candidates, apps) {
+  const recommendations = [];
+  for (const match of matched) {
+    const cand = candidates.find(c => c.message_id === match.message_id);
+    if (!cand || match.application_num === null) continue;
+    const classification = classifyReply(cand);
+    if (classification.suggestedTrackerUpdate === 'none' || classification.suggestedTrackerUpdate === 'Needs Review') continue;
+    const app = apps.find(a => a.num === match.application_num);
+    if (!app || app.status === classification.suggestedTrackerUpdate) continue;
+    recommendations.push({
+      num: app.num,
+      company: app.company,
+      role: app.role,
+      oldStatus: app.status,
+      newStatus: classification.suggestedTrackerUpdate,
+    });
+  }
+  const grouped = groupStatusRecommendations(recommendations);
+  return {
+    matched: matched.length,
+    recommendations: grouped.updates,
+    conflicts: grouped.conflicts,
+  };
+}
 
 async function main() {
   const args = process.argv.slice(2);
 
   const positional = args.filter(a => !a.startsWith('-'));
-  const unknownFlags = args.filter(a => a.startsWith('-') && !KNOWN_FLAGS.includes(a));
+  const jsonMode = args.includes('--json');
+  const noApply = args.includes('--no-apply');
+  const knownFlags = [...KNOWN_FLAGS, '--json', '--no-apply'];
+  const unknownFlags = args.filter(a => a.startsWith('-') && !knownFlags.includes(a));
   if (unknownFlags.length > 0) {
-    console.error(`Error: unrecognized flag(s): ${unknownFlags.join(', ')}. Valid flags: ${KNOWN_FLAGS.join(', ')}`);
+    console.error(`Error: unrecognized flag(s): ${unknownFlags.join(', ')}. Valid flags: ${knownFlags.join(', ')}`);
     process.exit(1);
   }
 
@@ -227,6 +256,16 @@ async function main() {
   }
 
   const candidatesPath = positional[0] || DEFAULT_CANDIDATES_PATH;
+  if (!fs.existsSync(candidatesPath) && (jsonMode || noApply)) {
+    console.log(JSON.stringify({
+      recommendations: [],
+      conflicts: [],
+      matched: 0,
+      sourceMissing: true,
+      sourcePath: candidatesPath,
+    }));
+    return;
+  }
   ensureCandidatesFile(candidatesPath);
 
   if (!fs.existsSync(candidatesPath)) {
@@ -246,6 +285,12 @@ async function main() {
   const followups = loadFollowups();
 
   const matched = matchCandidates(candidates, apps, followups);
+  const reviewResult = buildReviewResult(matched, candidates, apps);
+
+  if (jsonMode) {
+    console.log(JSON.stringify(reviewResult));
+    return;
+  }
 
   console.log(`\nToday: ${candidates.length} application updates need review\n`);
 
@@ -314,6 +359,10 @@ async function main() {
     });
     console.log('');
 
+    if (noApply) {
+      console.log('Updates skipped (--no-apply).');
+      return;
+    }
     const answer = await askQuestion(`Apply recommended status updates to ${APPS_FILE}? (y/N): `);
     if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
       const result = await updateTrackerStatuses(updates);

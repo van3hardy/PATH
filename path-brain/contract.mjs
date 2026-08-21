@@ -1,7 +1,9 @@
 const REQUEST_SCHEMA = 'path.brain.request.v1';
 const OUTPUT_SCHEMA = 'path.brain.output.v1';
-const PROMPT_VERSION = 'path-recruiter-v1';
-const OBJECTIVE = 'draft_first_touch';
+const FIRST_TOUCH_PROMPT_VERSION = 'path-recruiter-v1';
+const FIRST_TOUCH_OBJECTIVE = 'draft_first_touch';
+const REPLY_PROMPT_VERSION = 'path-reply-v1';
+const REPLY_OBJECTIVE = 'draft_email_reply';
 const VOICE_PROFILE = 'path-recruiter-persistent-respectful-v1';
 const DISCLOSURE_POLICY = 'always-disclose-ai-assistance-v1';
 const OUTPUT_KEYS = [
@@ -33,11 +35,15 @@ export async function runBrain(
   }
 
   let timer;
+  const controller = new AbortController();
   const timeout = new Promise((resolve, reject) => {
-    timer = setTimeout(() => reject(codedError('FAILED_BRAIN_TIMEOUT')), timeoutMs);
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(codedError('FAILED_BRAIN_TIMEOUT'));
+    }, timeoutMs);
   });
   const generated = Promise.resolve()
-    .then(() => provider.generate(providerInput))
+    .then(() => provider.generate(providerInput, { signal: controller.signal }))
     .catch((error) => {
       if (isStableCodedError(error)) throw error;
       throw Object.assign(new Error('FAILED_BRAIN_PROVIDER'), {
@@ -51,14 +57,14 @@ export async function runBrain(
     return deepFreeze(validateOutput(output, providerInput, claimValidationMode));
   } finally {
     clearTimeout(timer);
+    controller.abort();
   }
 }
 
 function boundedInput(input) {
   if (!isRecord(input) ||
       input.schemaVersion !== REQUEST_SCHEMA ||
-      input.promptVersion !== PROMPT_VERSION ||
-      input.objective !== OBJECTIVE ||
+      !isAllowedObjectivePair(input.promptVersion, input.objective) ||
       input.voiceProfile !== VOICE_PROFILE ||
       input.disclosurePolicy !== DISCLOSURE_POLICY ||
       !isRecord(input.recipient) ||
@@ -89,13 +95,36 @@ function boundedInput(input) {
 
   return {
     schemaVersion: REQUEST_SCHEMA,
-    promptVersion: PROMPT_VERSION,
-    objective: OBJECTIVE,
+    promptVersion: input.promptVersion,
+    objective: input.objective,
     recipient: { name: input.recipient.name, address: input.recipient.address },
     opportunity: { company: input.opportunity.company, role: input.opportunity.role },
     voiceProfile: VOICE_PROFILE,
     disclosurePolicy: DISCLOSURE_POLICY,
+    ...(input.objective === REPLY_OBJECTIVE ? { replyContext: boundedReplyContext(input.replyContext) } : {}),
     evidence
+  };
+}
+
+function isAllowedObjectivePair(promptVersion, objective) {
+  return promptVersion === FIRST_TOUCH_PROMPT_VERSION && objective === FIRST_TOUCH_OBJECTIVE ||
+    promptVersion === REPLY_PROMPT_VERSION && objective === REPLY_OBJECTIVE;
+}
+
+function boundedReplyContext(value) {
+  if (!isRecord(value) ||
+      !isNonemptyString(value.candidateMessageId) ||
+      !isNonemptyString(value.originalSubject) ||
+      !isNonemptyString(value.bodySnippet)) {
+    throw codedError('BLOCKED_INVALID_BRAIN_INPUT');
+  }
+  return {
+    candidateMessageId: value.candidateMessageId,
+    originalSubject: value.originalSubject,
+    bodySnippet: value.bodySnippet,
+    ...(isNonemptyString(value.threadId) ? { threadId: value.threadId } : {}),
+    ...(isNonemptyString(value.inReplyTo) ? { inReplyTo: value.inReplyTo } : {}),
+    ...(isNonemptyString(value.references) ? { references: value.references } : {})
   };
 }
 

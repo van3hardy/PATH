@@ -33,3 +33,9 @@ test('unsupported binding commitment is RED', () => {
   assert.equal(result.tier, 'RED');
   assert.ok(result.reasons.includes('binding commitment is manual-only'));
 });
+
+test('place_call is YELLOW', () => {
+  const result = classifyAction({ type: 'place_call', channel: 'phone', touch: 'first' });
+  assert.equal(result.tier, 'YELLOW');
+  assert.ok(result.reasons.includes('place call requires Van approval'));
+});

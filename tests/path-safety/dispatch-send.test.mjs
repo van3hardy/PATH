@@ -165,6 +165,31 @@ test('--send dispatches an approved packet and appends dispatch_completed', () =
   assert.equal(record.messageId, out.messageId);
 });
 
+test('--send passes reply thread metadata to the Gmail transport after approval', () => {
+  const packet = makePacket({
+    action: {
+      type: 'send_email',
+      channel: 'email',
+      touch: 'reply',
+      opportunity: { company: 'Example Company', role: 'AI Engineer' },
+      threadId: 'thread-123',
+      inReplyTo: '<gmail-message-123@example.test>',
+      references: '<root@example.test> <gmail-message-123@example.test>'
+    },
+    promptVersion: 'path-reply-v1',
+    model: 'deterministic-reply-template-v1'
+  });
+  const { result, dispatchPath } = runSendCli(packet, {
+    env: { PATH_SEND_FAKE_ECHO_THREAD: '1' }
+  });
+
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const out = JSON.parse(result.stdout);
+  assert.equal(out.messageId, 'fake-thread-123-reply-refs');
+  const record = JSON.parse(fs.readFileSync(dispatchPath, 'utf8').trim());
+  assert.equal(record.messageId, 'fake-thread-123-reply-refs');
+});
+
 test('send failure returns SEND_FAILED_* and leaves the ledger untouched', () => {
   const packet = makePacket();
   const { result, dispatchPath } = runSendCli(packet, { env: { PATH_SEND_FAKE_FAIL: '1' } });
@@ -353,4 +378,31 @@ test('name-only dedup — write-back records the fresh channel on the name-only 
   assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stdout).status, 'BLOCKED_ALREADY_CONTACTED');
   assert.equal(fs.readFileSync(dispatchPath, 'utf8').length, 0);
+});
+
+test('--send routes a linkedin-channel packet to the linkedin transport and records providerId linkedin', () => {
+  const packet = makeLinkedinPacket();
+  const { result, dispatchPath } = runSendCli(packet);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  const records = fs.readFileSync(dispatchPath, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].event, 'dispatch_completed');
+  assert.equal(records[0].providerId, 'linkedin');
+  assert.match(records[0].messageId, /^fake-linkedin-/);
+});
+
+test('--send routes a phone-channel packet to the telephony transport and records providerId telephony', () => {
+  const packet = makePacket({ action: {
+    type: 'place_call', channel: 'phone', touch: 'first',
+    opportunity: { company: 'Example Company', role: 'AI Engineer' }
+  } });
+  const { result, dispatchPath } = runSendCli(packet);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, 'DISPATCHED');
+  const records = fs.readFileSync(dispatchPath, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].event, 'dispatch_completed');
+  assert.equal(records[0].providerId, 'telephony');
+  assert.match(records[0].messageId, /^fake-telephony-/);
 });

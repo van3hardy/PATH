@@ -15,7 +15,8 @@ const YELLOW_TYPES = new Set([
   'send_linkedin',
   'send_reply',
   'submit_application',
-  'send_followup'
+  'send_followup',
+  'place_call'
 ]);
 
 const RED_RULES = [

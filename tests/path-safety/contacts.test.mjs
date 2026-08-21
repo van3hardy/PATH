@@ -216,6 +216,50 @@ test('a name-only upsert merges into the same record across spellings', (t) => {
   assert.equal(readLines(filePath).length, 2); // append-only
 });
 
+test('email promotion merges a name-only record and tombstones the old row', (t) => {
+  const filePath = tempFile(t);
+  const nameOnly = upsertContact(filePath, {
+    name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z'
+  });
+  const promoted = upsertContact(filePath, {
+    name: 'Sarah Chen', email: 'sarah@example.com', channel: 'email', at: '2026-08-09T10:00:00.000Z'
+  });
+  // New email-keyed identity; the name-only row is superseded, not kept.
+  assert.match(promoted.contactId, /^c-[a-f0-9]{16}$/);
+  assert.notEqual(promoted.contactId, nameOnly.contactId);
+  // History and channels carried over: linkedin + email.
+  assert.equal(promoted.history.length, 2);
+  assert.equal(promoted.history[0].channel, 'linkedin');
+  assert.equal(promoted.history[1].channel, 'email');
+  assert.equal(promoted.channels.length, 2);
+  // Ledger resolves to exactly one live record; the tombstone is skipped.
+  const map = loadContacts(filePath);
+  assert.equal(map.size, 1);
+  assert.equal(findPersonByEmail(map, 'sarah@example.com').contactId, promoted.contactId);
+  // Name-only lookup no longer resolves the person (no re-outreach hole).
+  assert.equal(findPersonByName(map, 'Sarah Chen'), undefined);
+  // Gate stays safe: contacted on either channel.
+  assert.equal(isContactedOnChannel(map, 'sarah@example.com', 'linkedin'), true);
+  assert.equal(isContactedOnChannel(map, 'sarah@example.com', 'email'), true);
+});
+
+test('email promotion merges both a name-only and an email-only record', (t) => {
+  const filePath = tempFile(t);
+  upsertContact(filePath, { name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z' });
+  upsertContact(filePath, { email: 'sarah@example.com', channel: 'email', at: '2026-08-05T00:00:00.000Z' });
+  const promoted = upsertContact(filePath, {
+    name: 'Sarah Chen', email: 'sarah@example.com', channel: 'phone', at: '2026-08-09T10:00:00.000Z'
+  });
+  // Both prior rows' histories fold into one email-keyed record.
+  assert.match(promoted.contactId, /^c-[a-f0-9]{16}$/);
+  assert.equal(promoted.history.length, 3);
+  assert.deepEqual(promoted.history.map((e) => e.channel), ['linkedin', 'email', 'phone']);
+  assert.equal(promoted.channels.length, 3);
+  const map = loadContacts(filePath);
+  assert.equal(map.size, 1);
+  assert.equal(findPersonByName(map, 'Sarah Chen'), undefined);
+});
+
 test('findPersonByName normalizes case and whitespace and never matches an email-keyed record', (t) => {
   const filePath = tempFile(t);
   upsertContact(filePath, { name: 'Sarah Chen', channel: 'linkedin', at: '2026-08-01T00:00:00.000Z' });
