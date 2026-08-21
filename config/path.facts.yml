@@ -36,3 +36,33 @@ facts:
     source: cv.md
     source_date: 2026-08-14
     approved: true
+  - id: van-career-amazon-associate-problem-solver
+    text: Van worked at Amazon.com Services LLC as a Fulfillment Associate / Problem Solver from 2009 to August 2018.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-target-roles
+    text: Van targets Operations Supervisor, Warehouse/Distribution Supervisor, and Retail Operations Manager roles.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-location-londonderry-nh
+    text: Van is based in Londonderry, NH.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-strengths-kpi-ownership
+    text: Van's strengths include shift execution, staffing, labor planning, workflow balancing, and KPI ownership across safety, quality, productivity, and on-time performance.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-safety-ci-methods
+    text: Van applies audits, hazard prevention, incident follow-up, standard work, 5S visual management, RCA, and corrective actions.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true
+  - id: van-career-peer-training-ramp-peak
+    text: Van trained peers on standard work and safe methods to stabilize performance during ramp and peak periods.
+    source: cv.md
+    source_date: 2026-08-14
+    approved: true

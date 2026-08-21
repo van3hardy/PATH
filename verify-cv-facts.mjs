@@ -336,8 +336,10 @@ export function verifyFacts(targetText, {
   configPath = DEFAULT_CONFIG,
   factsPath = DEFAULT_FACTS,
   cwd = process.cwd(),
+  extraSourceText = '',
 } = {}) {
-  const sourceText = sourcePaths.map(path => readIfExists(resolveInputPath(path, cwd))).join('\n');
+  const localSourceText = sourcePaths.map(path => readIfExists(resolveInputPath(path, cwd))).join('\n');
+  const sourceText = extraSourceText ? `${localSourceText}\n${extraSourceText}` : localSourceText;
   const config = loadConfig(resolveInputPath(configPath, cwd));
   const approvedFactsText = loadApprovedFacts(resolveInputPath(factsPath, cwd));
   const allowed = new Set([
@@ -383,20 +385,51 @@ export function assertFacts(targetText, options = {}) {
   return result;
 }
 
+/**
+ * Fetch one remote source's text. fetchFn is injectable so tests stay fully
+ * offline; live web checks remain manual/opt-in via the CLI --remote flag.
+ */
+export async function fetchRemoteSource(url, { fetchFn = fetch } = {}) {
+  let response;
+  try {
+    response = await fetchFn(url);
+  } catch (err) {
+    throw new Error(`remote source unreachable: ${url} (${err?.message || err})`);
+  }
+  if (!response.ok) throw new Error(`remote source failed: ${url} (HTTP ${response.status})`);
+  return response.text();
+}
+
+/**
+ * verifyFacts with additional remote sources appended to the local evidence.
+ * Never called with a live network by default — callers must pass remoteSources
+ * explicitly (CLI --remote) or inject fetchFn in tests.
+ */
+export async function verifyFactsWithRemote(targetText, {
+  remoteSources = [],
+  fetchFn = fetch,
+  ...rest
+} = {}) {
+  const remoteTexts = await Promise.all(remoteSources.map(({ url }) => fetchRemoteSource(url, { fetchFn })));
+  return verifyFacts(targetText, { ...rest, extraSourceText: remoteTexts.join('\n') });
+}
+
 /** Parse the fact-validator command-line arguments. */
 function parseCliArgs(args) {
   const sourcePaths = [];
+  const remoteUrls = [];
   let targetArg = '';
   let configPath = DEFAULT_CONFIG;
   let factsPath = DEFAULT_FACTS;
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--source' || arg === '--config' || arg === '--facts') {
-      if (!args[i + 1]) throw new Error(`${arg} requires a path`);
+    if (arg === '--source' || arg === '--config' || arg === '--facts' || arg === '--remote') {
+      if (!args[i + 1]) throw new Error(`${arg} requires a value`);
       if (arg === '--source') sourcePaths.push(args[++i]);
       else if (arg === '--config') configPath = args[++i];
-      else factsPath = args[++i];
+      else if (arg === '--facts') factsPath = args[++i];
+      else remoteUrls.push(args[++i]);
     } else if (arg === '--help' || arg === '-h') {
       return { help: true };
     } else if (arg === '--json') {
@@ -409,12 +442,12 @@ function parseCliArgs(args) {
       throw new Error(`unexpected extra positional argument: ${arg}`);
     }
   }
-  return { targetArg, sourcePaths, configPath, factsPath, json, help: false };
+  return { targetArg, sourcePaths, configPath, factsPath, remoteUrls, json, help: false };
 }
 
 /** Return the command-line usage text. */
 function usage() {
-  return `Usage: node verify-cv-facts.mjs <generated-document> [--source path] [--config path] [--facts path] [--json]
+  return `Usage: node verify-cv-facts.mjs <generated-document> [--source path] [--config path] [--facts path] [--remote url] [--json]
        node verify-cv-facts.mjs --self-test
 
 Checks generated candidate-facing text for unsupported metrics and explicitly asserted
@@ -578,7 +611,7 @@ function runSelfTest() {
 }
 
 /** Run the fact validator CLI and return its process exit code. */
-export function runCli(args = process.argv.slice(2)) {
+export async function runCli(args = process.argv.slice(2)) {
   if (args.length === 1 && args[0] === '--self-test') return runSelfTest();
   let parsed;
   try {
@@ -597,11 +630,20 @@ export function runCli(args = process.argv.slice(2)) {
     return 1;
   }
   try {
-    const result = verifyFacts(readFileSync(targetPath, 'utf-8'), {
+    const targetText = readFileSync(targetPath, 'utf-8');
+    const verifyOptions = {
       sourcePaths: parsed.sourcePaths.length ? parsed.sourcePaths : DEFAULT_SOURCES,
       configPath: parsed.configPath,
       factsPath: parsed.factsPath,
-    });
+    };
+    // --remote is an explicit opt-in: it consults live web sources as extra
+    // evidence. Without it, verification never touches the network.
+    const result = parsed.remoteUrls.length
+      ? await verifyFactsWithRemote(targetText, {
+          ...verifyOptions,
+          remoteSources: parsed.remoteUrls.map(url => ({ url })),
+        })
+      : verifyFacts(targetText, verifyOptions);
     if (parsed.json) {
       console.log(JSON.stringify(result));
       return result.verdict === 'block' ? 1 : 0;
@@ -641,5 +683,5 @@ export function runCli(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = runCli();
+  runCli().then(code => { process.exitCode = code; });
 }
