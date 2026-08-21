@@ -26,22 +26,31 @@ const PROFILE_FILE = process.env.CAREER_OPS_PROFILE || join(CAREER_OPS, 'config/
 
 
 // --- CLI args ---
+// Parsed only when this file is the node entry point. Parsing unconditionally
+// at import time made every importer (company-history.mjs, the learning-loop
+// chain) inherit this whitelist and exit(1) on their own flags like --self-test.
 const args = process.argv.slice(2);
-const summaryMode = args.includes('--summary');
-const jsonMode = args.includes('--json');
-const overdueOnly = args.includes('--overdue-only');
-const appliedDaysIdx = args.indexOf('--applied-days');
-const knownFlags = new Set(['--summary', '--json', '--overdue-only', '--applied-days']);
-const unknownFlags = args.filter((arg, index) => {
-  if (!arg.startsWith('-')) return false;
-  if (args[index - 1] === '--applied-days') return false;
-  return !knownFlags.has(arg);
-});
-if (unknownFlags.length > 0) {
-  console.error(`Error: unrecognized flag(s): ${unknownFlags.join(', ')}.`);
-  process.exit(1);
+let summaryMode = false;
+let jsonMode = false;
+let overdueOnly = false;
+let appliedDaysOverride = null;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  summaryMode = args.includes('--summary');
+  jsonMode = args.includes('--json');
+  overdueOnly = args.includes('--overdue-only');
+  const appliedDaysIdx = args.indexOf('--applied-days');
+  const knownFlags = new Set(['--summary', '--json', '--overdue-only', '--applied-days']);
+  const unknownFlags = args.filter((arg, index) => {
+    if (!arg.startsWith('-')) return false;
+    if (args[index - 1] === '--applied-days') return false;
+    return !knownFlags.has(arg);
+  });
+  if (unknownFlags.length > 0) {
+    console.error(`Error: unrecognized flag(s): ${unknownFlags.join(', ')}.`);
+    process.exit(1);
+  }
+  appliedDaysOverride = appliedDaysIdx !== -1 ? parseInt(args[appliedDaysIdx + 1], 10) : null;
 }
-const appliedDaysOverride = appliedDaysIdx !== -1 ? parseInt(args[appliedDaysIdx + 1], 10) : null;
 
 // --- Cadence config ---
 export const DEFAULT_CADENCE = {
