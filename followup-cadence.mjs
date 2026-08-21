@@ -25,23 +25,31 @@ const FOLLOWUPS_FILE = join(CAREER_OPS, 'data/follow-ups.md');
 const PROFILE_FILE = process.env.CAREER_OPS_PROFILE || join(CAREER_OPS, 'config/profile.yml');
 
 
-// --- CLI args ---
-const args = process.argv.slice(2);
-const summaryMode = args.includes('--summary');
-const jsonMode = args.includes('--json');
-const overdueOnly = args.includes('--overdue-only');
-const appliedDaysIdx = args.indexOf('--applied-days');
-const knownFlags = new Set(['--summary', '--json', '--overdue-only', '--applied-days']);
-const unknownFlags = args.filter((arg, index) => {
-  if (!arg.startsWith('-')) return false;
-  if (args[index - 1] === '--applied-days') return false;
-  return !knownFlags.has(arg);
-});
-if (unknownFlags.length > 0) {
-  console.error(`Error: unrecognized flag(s): ${unknownFlags.join(', ')}.`);
-  process.exit(1);
+// CLI parsing is intentionally deferred until the direct-execution guard at
+// the bottom. This module is imported by reporting and self-test scripts that
+// have their own flags; parsing process.argv during import makes those callers
+// fail before their own entrypoint can run.
+export function parseCliArgs(args = []) {
+  const summaryMode = args.includes('--summary');
+  const jsonMode = args.includes('--json');
+  const overdueOnly = args.includes('--overdue-only');
+  const appliedDaysIdx = args.indexOf('--applied-days');
+  const knownFlags = new Set(['--summary', '--json', '--overdue-only', '--applied-days']);
+  const unknownFlags = args.filter((arg, index) => {
+    if (!arg.startsWith('-')) return false;
+    if (args[index - 1] === '--applied-days') return false;
+    return !knownFlags.has(arg);
+  });
+  if (unknownFlags.length > 0) {
+    throw new Error(`unrecognized flag(s): ${unknownFlags.join(', ')}.`);
+  }
+  return {
+    summaryMode,
+    jsonMode,
+    overdueOnly,
+    appliedDays: appliedDaysIdx !== -1 ? parseInt(args[appliedDaysIdx + 1], 10) : null,
+  };
 }
-const appliedDaysOverride = appliedDaysIdx !== -1 ? parseInt(args[appliedDaysIdx + 1], 10) : null;
 
 // --- Cadence config ---
 export const DEFAULT_CADENCE = {
@@ -84,14 +92,15 @@ export function loadProfileCadence(profilePath = PROFILE_FILE) {
   return cadence;
 }
 
-export function resolveCadenceConfig({ profilePath = PROFILE_FILE, appliedDays = appliedDaysOverride } = {}) {
+export function resolveCadenceConfig({ profilePath = PROFILE_FILE, appliedDays = null } = {}) {
   const cadence = { ...DEFAULT_CADENCE, ...loadProfileCadence(profilePath) };
   const cliApplied = positiveInteger(appliedDays);
   if (cliApplied !== null) cadence.applied_first = cliApplied;
   return cadence;
 }
 
-const CADENCE = resolveCadenceConfig();
+let CADENCE = resolveCadenceConfig();
+let cliOverdueOnly = false;
 
 // --- Status normalization (mirrors verify-pipeline.mjs) ---
 const ALIASES = {
@@ -619,7 +628,7 @@ export function analyzeFromContent(trackerContent, followupsContent = '') {
   const urgencyOrder = { urgent: 0, overdue: 1, waiting: 2, cold: 3 };
   entries.sort((a, b) => (urgencyOrder[a.urgency] ?? 9) - (urgencyOrder[b.urgency] ?? 9));
 
-  const filtered = overdueOnly
+  const filtered = cliOverdueOnly
     ? entries.filter(e => e.urgency === 'overdue' || e.urgency === 'urgent')
     : entries;
 
@@ -693,7 +702,10 @@ function printSummary(result) {
 }
 
 // --- Run (CLI only; guarded so the module is safely importable for tests) ---
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function runCli(argv = process.argv.slice(2)) {
+  const { summaryMode, jsonMode, overdueOnly, appliedDays } = parseCliArgs(argv);
+  cliOverdueOnly = overdueOnly;
+  CADENCE = resolveCadenceConfig({ appliedDays });
   const result = analyze();
   const output = result.error && jsonMode
     ? {
@@ -710,4 +722,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
 
   if (output.error) process.exit(1);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    runCli();
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
 }
