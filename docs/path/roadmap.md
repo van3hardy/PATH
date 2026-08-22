@@ -41,10 +41,10 @@ Each phase names the skills to run **in order**. Process skills first, then impl
 | # | Item | Evidence it's needed | Status |
 |---|---|---|---|
 | 0.1 | Create `modes/discover.md` | Breaks the mode-integrity gate in `test-all.mjs` (~line 1918) + web `/api/explore/ai` returns `MODE_MISSING` | ✅ |
-| 0.2 | Create `interview-prep/story-bank.md` | Required by `match-star.mjs`, `modes/_shared.md`, `path-memory/evidence-selector.mjs` | ⬜ (optional user-layer file, not suite-gated) |
-| 0.3 | Create `config/cv-facts.json` | Only `.example` exists; `verify-cv-facts.mjs` defaults to it | ⬜ (optional user-layer file, not suite-gated) |
+| 0.2 | Create interview-prep/story-bank.md | Required by match-star.mjs, modes/_shared.md, path-memory/evidence-selector.mjs | ✅ created on disk 2026-08-22 — user-layer file, gitignored by design (interview-prep/*), seeded from config/path.facts.yml; match-star parses 4 stories, exit 0 |
+| 0.3 | Create `config/cv-facts.json` | Only `.example` exists; `verify-cv-facts.mjs` defaults to it | ✅ verified on disk 2026-08-21 |
 | 0.4 | Create the 10 missing `.mjs` scripts referenced by `test-all.mjs` | `MODULE_NOT_FOUND` crashes: `check-table-freshness`, `discover-ats`, `company-history`, `weekly-digest`, `contacts`, `discover-ats.test`, `company-history.test`, `contacts.test`, `validate-untrusted-content-coverage`, `seed-fixture` | ✅ |
-| 0.5 | (Optional) Update career-ops v1.22.0 → v1.26.0 | `node update-system.mjs check` reports update available; user data untouched | ✅ v1.26.0 |
+| 0.5 | (Optional) Update career-ops v1.22.0 → v1.26.0 | `node update-system.mjs check` reports update available; user data untouched | ✅ v1.26.0 (newer v1.28.0 available as of 2026-08-21) |
 
 **Skill gate:** `build-fix` → `verification-before-completion`.
 **Exit criterion:** `node test-all.mjs` passes end-to-end.

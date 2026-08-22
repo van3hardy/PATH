@@ -34,6 +34,33 @@ import * as yaml from 'js-yaml';
 import { pass, fail, warn, run, lastRunFailure, formatRunFailure, fileExists, finish, ROOT, QUICK, NODE, getBash, toBashPath } from './tests/helpers.mjs';
 import { flagValue, hasFlag } from './lib/cli-flags.mjs';
 
+// Hermetic child environment (#provider-gate, 2026-08-22).
+//
+// Inline sections below import scan.mjs and openrouter-runner.mjs IN THIS
+// PROCESS, and both load a developer's local .env at module scope. Once that
+// happens, GEMINI_API_KEY / OPENAI_API_KEY sit in this process's env and every
+// subsequently spawned child inherits them — including the node:test provider
+// suites, whose "transport refuses without an API key" assertions then make
+// real network calls instead of failing fast (full gate only: 2 failures with
+// a local .env present, 0 on fresh clones). Snapshot the env test-all itself
+// started with and hand exactly that to spawned suites, so the gate behaves
+// identically with or without a local .env.
+const PRISTINE_ENV_KEYS = new Set(Object.keys(process.env));
+
+/**
+ * Environment for spawned test children: every variable test-all started
+ * with (current values, not frozen copies), nothing added since startup.
+ *
+ * @returns {Record<string, string>} Sanitized child env.
+ */
+function hermeticChildEnv() {
+  const env = {};
+  for (const key of PRISTINE_ENV_KEYS) {
+    if (key in process.env) env[key] = process.env[key];
+  }
+  return env;
+}
+
 /**
  * Read a repo-relative text file as UTF-8.
  *
@@ -128,7 +155,10 @@ async function runDiscovered(filter = null) {
     // counters. Importing them is what loses the result, so this cannot be
     // fixed in finish(); it has to happen where the suite is invoked.
     if (/from ['"]node:test['"]/.test(src)) {
-      const out = run(NODE, ['--test', f]);
+      // hermeticChildEnv(): in-process imports above may have loaded a local
+      // .env into this process; the suite children must not see it (see the
+      // PRISTINE_ENV_KEYS comment at the top of this file).
+      const out = run(NODE, ['--test', f], { env: hermeticChildEnv() });
       if (out === null) {
         const detail = lastRunFailure();
         fail(`${rel} — node:test suite failed (exit ${detail?.status ?? '?'})`);
