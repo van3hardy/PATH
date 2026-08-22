@@ -41,10 +41,16 @@ import { readFileSync, existsSync, readdirSync, mkdtempSync, writeFileSync, rmSy
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as yaml from 'js-yaml';
+import { aggregateFeedback, deriveRecommendations, renderSummary } from './learning-loop.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SESSIONS_DIR = join(CAREER_OPS, 'interview-prep', 'sessions');
 const DEFAULT_QUESTION_BANK_PATH = join(CAREER_OPS, 'interview-prep', 'question-bank.md');
+// Learning-loop inputs — same files learning-loop.mjs aggregates, so the
+// weekly digest and the loop always reason over one source of truth.
+const DEFAULT_TRACKER_PATH = join(CAREER_OPS, 'data', 'applications.md');
+const DEFAULT_STATUS_LOG_PATH = join(CAREER_OPS, 'data', 'status-log.tsv');
+const DEFAULT_FOLLOWUPS_PATH = join(CAREER_OPS, 'data', 'follow-ups.md');
 
 const ROUND_ENUM = ['screen', 'hiring-manager', 'technical', 'system-design', 'behavioral', 'onsite', 'final'];
 
@@ -270,6 +276,41 @@ export function buildDigest(sessionsInRange, gapsByCompany = new Map()) {
   };
 }
 
+// ── Learning-loop section (closure wiring) ───────────────────────────
+
+function readTextIfPresent(p) {
+  if (!p || !existsSync(p)) return '';
+  try {
+    return readFileSync(p, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Aggregate learning-loop inputs into a digest-ready section. Returns null
+ * when there is nothing to say (no inputs at all, or the loop's own
+ * "no data yet" state) so callers can omit the section entirely instead of
+ * printing an empty promise. Never throws — degraded data degrades the
+ * section, not the digest.
+ *
+ * @param {{trackerContent?: string, logContent?: string, followupsContent?: string}} parts
+ * @returns {{recommendations: string[], summary: string} | null}
+ */
+export function buildLearningSection({ trackerContent = '', logContent = '', followupsContent = '' } = {}) {
+  if (![trackerContent, logContent, followupsContent].some((c) => c && c.trim())) return null;
+  try {
+    const feedback = aggregateFeedback({ trackerContent, logContent, followupsContent });
+    const noSignals = !feedback.sources.tracker && !feedback.outcomeFeedback.length && !feedback.skillGaps;
+    if (noSignals) return null;
+    const summary = renderSummary(feedback);
+    if (!summary.trim()) return null;
+    return { recommendations: deriveRecommendations(feedback), summary };
+  } catch {
+    return null;
+  }
+}
+
 // ── Assembler ────────────────────────────────────────────────────────
 
 /**
@@ -282,6 +323,9 @@ export function computeWeeklyDigest({
   to,
   sessionsDir = DEFAULT_SESSIONS_DIR,
   questionBankPath = DEFAULT_QUESTION_BANK_PATH,
+  trackerPath = DEFAULT_TRACKER_PATH,
+  statusLogPath = DEFAULT_STATUS_LOG_PATH,
+  followupsPath = DEFAULT_FOLLOWUPS_PATH,
 } = {}) {
   // Range resolution has three cases, not two:
   //   - neither --from nor --to given -> default current-week range (unchanged)
@@ -328,6 +372,15 @@ export function computeWeeklyDigest({
 
   const digest = buildDigest(sessionsInRange, gapsByCompany);
 
+  // Learning-loop closure: best-effort section alongside the interview
+  // rollup. Missing/unreadable inputs degrade to no section (null), never
+  // to a digest failure.
+  const learning = buildLearningSection({
+    trackerContent: readTextIfPresent(trackerPath),
+    logContent: readTextIfPresent(statusLogPath),
+    followupsContent: readTextIfPresent(followupsPath),
+  });
+
   // digest.companies is grouped by company+role (a company running two
   // concurrent roles is two rollup rows) — that's correct for the rollup
   // content itself, but the metadata count must dedupe to unique companies
@@ -342,8 +395,10 @@ export function computeWeeklyDigest({
       totalSessionsFound: allSessions.length,
       sessionsInRange: sessionsInRange.length,
       companiesInRange: uniqueCompanyCount,
+      learningIncluded: Boolean(learning),
     },
     ...digest,
+    ...(learning ? { learning } : {}),
   };
 }
 
@@ -390,6 +445,17 @@ function printSummary(result) {
   } else if (result.metadata.questionBankFound) {
     console.log('');
     console.log('Open gaps by company: none matched (question-bank.md present but no 🔴 items tied to this week\'s companies)');
+  }
+
+  if (result.learning?.summary) {
+    console.log(result.learning.summary);
+    if (result.learning.recommendations?.length) {
+      console.log('');
+      console.log('Recommendations:');
+      for (const rec of result.learning.recommendations.slice(0, 5)) {
+        console.log(`  - ${rec}`);
+      }
+    }
   }
   console.log('');
 }
@@ -643,6 +709,53 @@ async function runSelfTest() {
     validRangeOk = false;
   }
   check(validRangeOk, 'both --from and --to supplied with from <= to computes the digest without error');
+
+  // Learning-loop closure wiring: buildLearningSection contract.
+  check(buildLearningSection() === null, 'buildLearningSection with no inputs returns null');
+  check(buildLearningSection({ trackerContent: '   \n  ' }) === null, 'buildLearningSection with whitespace-only inputs returns null');
+  const learningFixture = buildLearningSection({
+    trackerContent: [
+      '| # | Company | Role | Status | Date |',
+      '|---|---------|------|--------|------|',
+      '| 1 | Acme Corp | LXD | Applied | 2026-07-01 |',
+      '| 2 | Beta LLC | ID | Interview | 2026-07-05 |',
+    ].join('\n'),
+  });
+  check(!!learningFixture, 'buildLearningSection with tracker content returns a section');
+  check(!!learningFixture && typeof learningFixture.summary === 'string' && learningFixture.summary.includes('Learning Loop'), 'learning section summary renders the loop header');
+  check(!!learningFixture && Array.isArray(learningFixture.recommendations), 'learning section carries recommendations as an array');
+
+  // End-to-end: digest picks up the learning section from on-disk inputs,
+  // and absent inputs leave both the section and the metadata flag null/false.
+  const tmpLearnDir = mkdtempSync(join(tmpBase, 'weekly-digest-selftest-learning-'));
+  try {
+    writeFileSync(join(tmpLearnDir, 'applications.md'), '| # | Company | Role | Status | Date |\n|---|---------|------|--------|------|\n| 1 | Acme Corp | LXD | Applied | 2026-07-01 |\n');
+    writeFileSync(join(tmpLearnDir, 'acme-corp-instructional-designer-behavioral-2026-07-21.md'), goodSession);
+    const learnResult = computeWeeklyDigest({
+      from: '2026-07-20',
+      to: '2026-07-26',
+      sessionsDir: tmpLearnDir,
+      questionBankPath: '/definitely/does/not/exist/question-bank.md',
+      trackerPath: join(tmpLearnDir, 'applications.md'),
+      statusLogPath: join(tmpLearnDir, 'status-log.tsv'),
+      followupsPath: join(tmpLearnDir, 'follow-ups.md'),
+    });
+    check(learnResult.metadata.learningIncluded === true, 'end-to-end: digest reports the learning section as included when tracker data exists');
+    check(!!learnResult.learning && typeof learnResult.learning.summary === 'string', 'end-to-end: learning summary attached to the digest result');
+
+    const noLearnResult = computeWeeklyDigest({
+      from: '2026-07-20',
+      to: '2026-07-26',
+      sessionsDir: tmpLearnDir,
+      questionBankPath: '/definitely/does/not/exist/question-bank.md',
+      trackerPath: join(tmpLearnDir, 'missing-applications.md'),
+      statusLogPath: join(tmpLearnDir, 'missing-status-log.tsv'),
+      followupsPath: join(tmpLearnDir, 'missing-follow-ups.md'),
+    });
+    check(noLearnResult.metadata.learningIncluded === false && noLearnResult.learning === undefined, 'end-to-end: missing learning inputs omit the section and clear the flag');
+  } finally {
+    rmSync(tmpLearnDir, { recursive: true, force: true });
+  }
 
   console.log(`\n  weekly-digest self-test: ${pass} passed, ${fail} failed\n`);
   process.exit(fail > 0 ? 1 : 0);
