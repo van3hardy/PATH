@@ -71,8 +71,12 @@ export function materializeSkillEntrypoints(root) {
     if (!stat.isFile()) continue;
 
     try {
-      const content = readFileSync(entryPath, 'utf-8').trim();
-      if (content !== entry.pointer) continue;
+      const content = readFileSync(entryPath, 'utf-8');
+      // Entrypoints are system-owned. On Windows, a symlink blob can be
+      // checked out as a regular file containing an older materialized copy
+      // instead of the pointer text, so refresh every non-canonical regular
+      // file rather than only literal pointers.
+      if (content === canonicalContent) continue;
       writeFileSync(entryPath, canonicalContent);
     } catch {
       continue;
@@ -111,8 +115,10 @@ export function ensureSkillEntrypoints(root) {
     if (!stat.isFile()) continue;
 
     try {
-      const content = readFileSync(entryPath, 'utf-8').trim();
-      if (content !== entry.pointer) continue;
+      const content = readFileSync(entryPath, 'utf-8');
+      // Keep stale regular copies in sync as well as pointer files. This is
+      // required when a Windows checkout retained a prior canonical copy.
+      if (content === canonicalContent) continue;
       writeFileSync(entryPath, canonicalContent);
       if (!touched.includes(entry.path)) touched.push(entry.path);
     } catch {

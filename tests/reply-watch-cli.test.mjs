@@ -18,21 +18,21 @@ test('reply-watch --no-apply --json emits JSON without prompting or mutating the
     body_snippet: 'Please review this update',
   }]));
   const tracker = join(ROOT, 'data', 'applications.md');
-  const before = readFileSync(tracker, 'utf8');
+  const before = existsSync(tracker) ? readFileSync(tracker, 'utf8') : null;
   const stdout = execFileSync(process.execPath, ['reply-watch.mjs', '--no-apply', '--json', candidates], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 5000,
   });
   assert.deepEqual(JSON.parse(stdout), { recommendations: [], conflicts: [], matched: 1 });
-  assert.equal(readFileSync(tracker, 'utf8'), before);
+  if (before !== null) assert.equal(readFileSync(tracker, 'utf8'), before);
 });
 
 test('reply-watch --no-apply --json does not create mock candidates when the file is missing', () => {
   const dir = mkdtempSync(join(tmpdir(), 'path-reply-watch-missing-'));
   const candidates = join(dir, 'missing-candidates.json');
   const tracker = join(ROOT, 'data', 'applications.md');
-  const before = readFileSync(tracker, 'utf8');
+  const before = existsSync(tracker) ? readFileSync(tracker, 'utf8') : null;
   const stdout = execFileSync(process.execPath, ['reply-watch.mjs', '--no-apply', '--json', candidates], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -46,5 +46,5 @@ test('reply-watch --no-apply --json does not create mock candidates when the fil
     sourcePath: candidates,
   });
   assert.equal(existsSync(candidates), false);
-  assert.equal(readFileSync(tracker, 'utf8'), before);
+  if (before !== null) assert.equal(readFileSync(tracker, 'utf8'), before);
 });

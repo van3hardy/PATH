@@ -7,8 +7,10 @@
  * Run: node followup-cadence.test.mjs
  */
 
+import { execFileSync } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { pathToFileURL } from 'url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CADENCE_PROFILE = join(ROOT, 'tests', 'fixtures', 'profile-default-cadence.yml');
@@ -24,6 +26,22 @@ const CUSTOM_CADENCE_PROFILE = join(ROOT, 'tests', 'fixtures', 'profile-custom-c
 // statement in this file, so a static import would run the module before this
 // assignment and the pin would do nothing.
 process.env.CAREER_OPS_PROFILE = DEFAULT_CADENCE_PROFILE;
+
+// Importing this library must not parse or reject the caller's CLI flags. The
+// cadence module is reused by self-test/report scripts that have their own
+// flags; importing it in a child with a foreign flag is the smallest regression
+// for the old top-level process.argv parser.
+try {
+  execFileSync(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `process.argv.push('caller-script', '--self-test'); await import(${JSON.stringify(pathToFileURL(join(ROOT, 'followup-cadence.mjs')).href)}); process.stdout.write('import-ok');`,
+  ], { encoding: 'utf-8' });
+  console.log('PASS importing followup-cadence ignores caller flags');
+} catch (error) {
+  console.log(`FAIL importing followup-cadence ignores caller flags: ${error.stderr || error.message}`);
+  process.exit(1);
+}
 
 const {
   computeNextFollowupDate,
